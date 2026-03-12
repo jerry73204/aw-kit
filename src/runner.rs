@@ -1,4 +1,11 @@
-use std::{path::Path, process::Command};
+use std::{
+    path::Path,
+    process::Command,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
+};
 
 use tracing::info;
 
@@ -8,18 +15,76 @@ use crate::error::{Error, Result};
 const COMPOSE_FILE: &str = ".aw-kit/compose/docker-compose.yml";
 
 /// Start all services via `docker compose up`.
+///
+/// In foreground mode (no `--detach`), Ctrl-C pauses the containers
+/// instead of stopping them. Use `aw-kit stop` to fully stop.
 pub fn run(project_root: &Path, detach: bool) -> Result<()> {
     let compose_path = project_root.join(COMPOSE_FILE);
     ensure_compose_exists(&compose_path)?;
-
     let compose_str = compose_path.to_string_lossy().to_string();
-    let mut args: Vec<&str> = vec!["compose", "-f", &compose_str, "up"];
-    if detach {
-        args.push("-d");
-    }
 
+    if detach {
+        info!("starting services (detached)");
+        exec_docker(&["compose", "-f", &compose_str, "up", "-d"])
+    } else {
+        run_foreground(&compose_str)
+    }
+}
+
+/// Foreground run: start containers detached, follow logs, pause on Ctrl-C.
+fn run_foreground(compose_file: &str) -> Result<()> {
+    // Start containers in the background so they survive Ctrl-C.
     info!("starting services");
-    exec_docker(&args)
+    exec_docker(&["compose", "-f", compose_file, "up", "-d"])?;
+
+    // Set up Ctrl-C handler to pause containers.
+    let interrupted = Arc::new(AtomicBool::new(false));
+    let interrupted_clone = Arc::clone(&interrupted);
+    let compose_owned = compose_file.to_string();
+
+    ctrlc::set_handler(move || {
+        interrupted_clone.store(true, Ordering::SeqCst);
+        // Pause containers.
+        let _ = Command::new("docker")
+            .args(["compose", "-f", &compose_owned, "pause"])
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::inherit())
+            .status();
+        eprintln!();
+        eprintln!("containers paused. Use `aw-kit run` to resume or `aw-kit stop` to shut down.");
+    })
+    .map_err(|e| Error::Build(format!("failed to set signal handler: {e}")))?;
+
+    // Follow logs until interrupted.
+    let mut child = Command::new("docker")
+        .args(["compose", "-f", compose_file, "logs", "-f"])
+        .stdout(std::process::Stdio::inherit())
+        .stderr(std::process::Stdio::inherit())
+        .spawn()
+        .map_err(|source| Error::Io {
+            path: "docker".into(),
+            source,
+        })?;
+
+    let _ = child.wait();
+
+    if interrupted.load(Ordering::SeqCst) {
+        // Already printed the pause message in the handler.
+        Ok(())
+    } else {
+        // Logs ended naturally (containers exited).
+        Ok(())
+    }
+}
+
+/// Resume paused services and follow logs again.
+pub fn resume(project_root: &Path) -> Result<()> {
+    let compose_path = project_root.join(COMPOSE_FILE);
+    ensure_compose_exists(&compose_path)?;
+    let compose_str = compose_path.to_string_lossy().to_string();
+
+    info!("resuming paused services");
+    exec_docker(&["compose", "-f", &compose_str, "unpause"])
 }
 
 /// Stop all services via `docker compose down`.
@@ -109,6 +174,13 @@ mod tests {
     fn logs_missing_compose_errors() {
         let dir = tempfile::tempdir().unwrap();
         let err = logs(dir.path(), None, false).unwrap_err();
+        assert!(err.to_string().contains("compose file not found"));
+    }
+
+    #[test]
+    fn resume_missing_compose_errors() {
+        let dir = tempfile::tempdir().unwrap();
+        let err = resume(dir.path()).unwrap_err();
         assert!(err.to_string().contains("compose file not found"));
     }
 }

@@ -56,7 +56,7 @@ This avoids rebuilding on every Orin unit when one unit has already built and pu
 - [x] Implement `logs(project_root, component, follow)` — invoke `docker compose logs`
 - [x] Check for generated compose file existence before running; error if missing with guidance
 - [x] Forward Docker Compose stdout/stderr/stdin to the terminal
-- [ ] Handle Ctrl-C gracefully: forward SIGINT to compose, clean shutdown
+- [x] Handle Ctrl-C gracefully: catch SIGINT, pause containers via `docker compose pause`
 - [x] Create `registry.rs` module
 - [x] Implement `push(registry, plan, result)` — tag and push all locally-built overlay images
 - [x] Implement `check_remote(image) -> Option<String>` — query registry via `docker buildx imagetools inspect`
