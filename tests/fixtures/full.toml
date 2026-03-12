@@ -15,7 +15,7 @@ vehicle-system       = true
 api                  = true
 
 [patch.localization-mapping]
-ndt_scan_matcher = { git = "https://github.com/autosdv/ndt_fix.git", branch = "orin-fix" }
+ndt_scan_matcher = { path = "./patches/ndt_scan_matcher" }
 
 [[package]]
 name    = "autosdv_behavioral_planner"

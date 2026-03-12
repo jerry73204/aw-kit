@@ -11,7 +11,7 @@ planning-control     = true
 vehicle-system       = true
 
 [patch.localization-mapping]
-ndt_scan_matcher = { git = "https://github.com/autosdv/ndt_fix.git", branch = "orin-mem-fix" }
+ndt_scan_matcher = { path = "./patches/ndt_scan_matcher" }
 
 [patch.sensing-perception]
 lidar_centerpoint = { path = "./patches/lidar_centerpoint" }
