@@ -14,7 +14,8 @@ fn minimal_fixture() {
     let m = fixture("minimal.toml");
     assert_eq!(m.workspace.autoware, "0.45.1");
     assert_eq!(m.enabled_components().len(), 6);
-    assert!(m.platform.is_none());
+    assert_eq!(m.platform.arch, "amd64");
+    assert!(m.platform.device.is_none());
     assert!(m.patch.is_empty());
     assert!(m.package.is_empty());
 }
@@ -31,10 +32,9 @@ fn patched_fixture() {
 #[test]
 fn orin_fixture() {
     let m = fixture("orin.toml");
-    let p = m.platform.as_ref().unwrap();
-    assert_eq!(p.device.as_deref(), Some("jetson-agx-orin"));
-    assert_eq!(p.jetpack.as_deref(), Some("6.1"));
-    assert_eq!(p.arch.as_deref(), Some("arm64"));
+    assert_eq!(m.platform.arch, "arm64");
+    assert_eq!(m.platform.device.as_deref(), Some("jetson-agx-orin"));
+    assert_eq!(m.platform.jetpack.as_deref(), Some("6.1"));
 }
 
 #[test]
@@ -48,7 +48,7 @@ fn custom_pkg_fixture() {
 #[test]
 fn full_fixture() {
     let m = fixture("full.toml");
-    assert!(m.platform.is_some());
+    assert_eq!(m.platform.device.as_deref(), Some("jetson-agx-orin"));
     assert_eq!(m.patch.len(), 1);
     assert_eq!(m.package.len(), 1);
     assert!(m.registry.is_some());

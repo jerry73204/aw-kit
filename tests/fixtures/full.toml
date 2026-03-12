@@ -2,6 +2,7 @@
 autoware = "0.45.1"
 
 [platform]
+arch    = "arm64"
 device  = "jetson-agx-orin"
 jetpack = "6.1"
 

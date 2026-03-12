@@ -28,7 +28,7 @@ pub struct ManifestConfig {
     #[serde(default)]
     pub components: BTreeMap<String, bool>,
 
-    pub platform: Option<Platform>,
+    pub platform: Platform,
 
     #[serde(default)]
     pub patch: BTreeMap<String, BTreeMap<String, PatchSource>>,
@@ -48,7 +48,7 @@ pub struct Workspace {
 
 #[derive(Debug, Deserialize)]
 pub struct Platform {
-    pub arch: Option<String>,
+    pub arch: String,
     pub device: Option<String>,
     pub jetpack: Option<String>,
 }
@@ -173,6 +173,9 @@ mod tests {
             [workspace]
             autoware = "0.45.1"
 
+            [platform]
+            arch = "amd64"
+
             [components]
             sensing    = true
             perception = true
@@ -185,7 +188,8 @@ mod tests {
 
         assert_eq!(m.workspace.autoware, "0.45.1");
         assert_eq!(m.enabled_components().len(), 5);
-        assert!(m.platform.is_none());
+        assert_eq!(m.platform.arch, "amd64");
+        assert!(m.platform.device.is_none());
         assert!(m.patch.is_empty());
         assert!(m.package.is_empty());
         assert!(m.registry.is_none());
@@ -197,6 +201,9 @@ mod tests {
             r#"
             [workspace]
             autoware = "0.45.1"
+
+            [platform]
+            arch = "amd64"
 
             [components]
             localization = true
@@ -243,9 +250,9 @@ mod tests {
         )
         .unwrap();
 
-        let p = m.platform.unwrap();
-        assert_eq!(p.device.as_deref(), Some("jetson-agx-orin"));
-        assert_eq!(p.jetpack.as_deref(), Some("6.1"));
+        assert_eq!(m.platform.arch, "arm64");
+        assert_eq!(m.platform.device.as_deref(), Some("jetson-agx-orin"));
+        assert_eq!(m.platform.jetpack.as_deref(), Some("6.1"));
     }
 
     #[test]
@@ -254,6 +261,9 @@ mod tests {
             r#"
             [workspace]
             autoware = "0.45.1"
+
+            [platform]
+            arch = "amd64"
 
             [components]
             planning = true
@@ -286,6 +296,7 @@ mod tests {
             autoware = "0.45.1"
 
             [platform]
+            arch    = "arm64"
             device  = "jetson-agx-orin"
             jetpack = "6.1"
 
@@ -312,7 +323,7 @@ mod tests {
         .unwrap();
 
         assert_eq!(m.enabled_components().len(), 5);
-        assert!(m.platform.is_some());
+        assert_eq!(m.platform.device.as_deref(), Some("jetson-agx-orin"));
         assert_eq!(m.patch.len(), 1);
         assert_eq!(m.package.len(), 1);
         assert!(m.registry.is_some());
@@ -325,6 +336,9 @@ mod tests {
             r#"
             [workspace]
             autoware = "0.45.1"
+
+            [platform]
+            arch = "amd64"
 
             [components]
             teleportation = true
@@ -342,6 +356,9 @@ mod tests {
             r#"
             [workspace]
             autoware = "0.45.1"
+
+            [platform]
+            arch = "amd64"
 
             [components]
             planning = true
@@ -363,6 +380,9 @@ mod tests {
             [workspace]
             autoware = "0.45.1"
 
+            [platform]
+            arch = "amd64"
+
             [components]
             localization = false
 
@@ -383,6 +403,9 @@ mod tests {
             [workspace]
             autoware = "0.45.1"
 
+            [platform]
+            arch = "amd64"
+
             [components]
             planning = true
 
@@ -402,14 +425,53 @@ mod tests {
     fn missing_workspace_rejected() {
         let err = parse(
             r#"
+            [platform]
+            arch = "amd64"
+
             [components]
             planning = true
             "#,
         )
         .unwrap_err();
 
-        // toml parse error — workspace is required
         let msg = err.to_string();
         assert!(msg.contains("workspace"), "{msg}");
+    }
+
+    #[test]
+    fn missing_platform_rejected() {
+        let err = parse(
+            r#"
+            [workspace]
+            autoware = "0.45.1"
+
+            [components]
+            planning = true
+            "#,
+        )
+        .unwrap_err();
+
+        let msg = err.to_string();
+        assert!(msg.contains("platform"), "{msg}");
+    }
+
+    #[test]
+    fn missing_platform_arch_rejected() {
+        let err = parse(
+            r#"
+            [workspace]
+            autoware = "0.45.1"
+
+            [platform]
+            device = "jetson-agx-orin"
+
+            [components]
+            planning = true
+            "#,
+        )
+        .unwrap_err();
+
+        let msg = err.to_string();
+        assert!(msg.contains("arch"), "{msg}");
     }
 }

@@ -55,19 +55,16 @@ fn print_manifest(m: &ManifestConfig) {
     println!("Autoware {}", m.workspace.autoware);
     println!();
 
-    if let Some(ref p) = m.platform {
-        println!("Platform:");
-        if let Some(ref arch) = p.arch {
-            println!("  arch:    {arch}");
-        }
-        if let Some(ref device) = p.device {
-            println!("  device:  {device}");
-        }
-        if let Some(ref jp) = p.jetpack {
-            println!("  jetpack: {jp}");
-        }
-        println!();
+    let p = &m.platform;
+    println!("Platform:");
+    println!("  arch:    {}", p.arch);
+    if let Some(ref device) = p.device {
+        println!("  device:  {device}");
     }
+    if let Some(ref jp) = p.jetpack {
+        println!("  jetpack: {jp}");
+    }
+    println!();
 
     let enabled = m.enabled_components();
     println!("Components ({}):", enabled.len());

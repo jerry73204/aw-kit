@@ -1,6 +1,9 @@
 [workspace]
 autoware = "0.45.1"
 
+[platform]
+arch = "amd64"
+
 [components]
 localization = true
 perception   = true
