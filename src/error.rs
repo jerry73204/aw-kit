@@ -19,6 +19,15 @@ pub enum Error {
 
     #[error("platform error: {0}")]
     Platform(String),
+
+    #[error("codegen error: {0}")]
+    Codegen(String),
+
+    #[error("I/O error: {path}: {source}")]
+    Io {
+        path: PathBuf,
+        source: std::io::Error,
+    },
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
