@@ -2,7 +2,9 @@ use clap::Parser;
 use tracing::info;
 
 use aw_kit::{
+    builder::{self, ShellDockerEngine},
     cli::{Cli, Command},
+    lockfile::LockFile,
     manifest::ManifestConfig,
     platform::resolve_platform,
     resolver,
@@ -24,7 +26,7 @@ fn main() {
         Command::Build {
             dry_run,
             pull: _,
-            locked: _,
+            locked,
         } => {
             let manifest = load_manifest(&cli.manifest);
             let resolved = match resolve_platform(&manifest.platform) {
@@ -41,14 +43,53 @@ fn main() {
                     std::process::exit(1);
                 }
             };
+
             if dry_run {
                 print_manifest(&manifest);
                 resolved.print_summary();
                 eprintln!();
                 plan.print_summary();
-            } else {
-                info!("build is not yet implemented");
+                return;
             }
+
+            let project_root = cli
+                .manifest
+                .parent()
+                .unwrap_or_else(|| std::path::Path::new("."));
+            let engine = ShellDockerEngine;
+
+            if locked {
+                let lock_path = project_root.join("Autoware.lock");
+                let lock = match LockFile::read(&lock_path) {
+                    Ok(l) => l,
+                    Err(e) => {
+                        eprintln!("error: {e}");
+                        std::process::exit(1);
+                    }
+                };
+                if let Err(e) = builder::verify_locked(&engine, &lock, &plan, &resolved) {
+                    eprintln!("error: {e}");
+                    std::process::exit(1);
+                }
+                return;
+            }
+
+            let result =
+                match builder::execute_plan(&engine, &manifest, &plan, &resolved, project_root) {
+                    Ok(r) => r,
+                    Err(e) => {
+                        eprintln!("error: {e}");
+                        std::process::exit(1);
+                    }
+                };
+
+            let lock = builder::build_lock(&manifest, &result);
+            let lock_path = project_root.join("Autoware.lock");
+            if let Err(e) = lock.write(&lock_path) {
+                eprintln!("error: failed to write lock file: {e}");
+                std::process::exit(1);
+            }
+            info!("wrote {}", lock_path.display());
         }
         Command::Run { .. } => info!("run is not yet implemented"),
         Command::Stop => info!("stop is not yet implemented"),

@@ -23,6 +23,9 @@ pub enum Error {
     #[error("codegen error: {0}")]
     Codegen(String),
 
+    #[error("build error: {0}")]
+    Build(String),
+
     #[error("I/O error: {path}: {source}")]
     Io {
         path: PathBuf,
