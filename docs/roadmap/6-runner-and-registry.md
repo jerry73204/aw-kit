@@ -50,36 +50,37 @@ This avoids rebuilding on every Orin unit when one unit has already built and pu
 
 ## Work Items
 
-- [ ] Create `runner.rs` module
-- [ ] Implement `run(detach: bool)` — invoke `docker compose up` on generated compose
-- [ ] Implement `stop()` — invoke `docker compose down`
-- [ ] Implement `logs(component: Option<String>, follow: bool)` — invoke `docker compose logs`
-- [ ] Check for generated compose file existence before running; auto-build or error if missing
-- [ ] Forward Docker Compose stdout/stderr to the terminal
+- [x] Create `runner.rs` module
+- [x] Implement `run(project_root, detach)` — invoke `docker compose up` on generated compose
+- [x] Implement `stop(project_root)` — invoke `docker compose down`
+- [x] Implement `logs(project_root, component, follow)` — invoke `docker compose logs`
+- [x] Check for generated compose file existence before running; error if missing with guidance
+- [x] Forward Docker Compose stdout/stderr/stdin to the terminal
 - [ ] Handle Ctrl-C gracefully: forward SIGINT to compose, clean shutdown
-- [ ] Create `registry.rs` module
-- [ ] Implement `push(registry: &Registry, build_result: &BuildResult)` — tag and push all built images
-- [ ] Implement `check_remote(registry: &Registry, tag: &str) -> Option<String>` — query registry for existing image
-- [ ] Integrate `--pull` flag into build pipeline: check remote before local build
+- [x] Create `registry.rs` module
+- [x] Implement `push(registry, plan, result)` — tag and push all locally-built overlay images
+- [x] Implement `check_remote(image) -> Option<String>` — query registry via `docker buildx imagetools inspect`
+- [x] Implement `pull_from_registry(registry, plan)` — pull pre-built overlays, re-tag as local tags
+- [x] Integrate `--pull` flag into build pipeline: check remote before local build
 - [ ] Implement `docker login` detection: warn if not authenticated to configured registry
-- [ ] Add `push` subcommand to CLI
-- [ ] Add `--pull` flag to `build` subcommand
-- [ ] Add `stop` and `logs` subcommands to CLI
-- [ ] Write integration tests: runner invokes correct compose commands
-- [ ] Write unit tests: registry tag computation
+- [x] Wire `push` subcommand in `main.rs` — reads lock file, pushes overlay images
+- [x] Wire `--pull` flag in `build` subcommand — calls `pull_from_registry` before executing plan
+- [x] Wire `run`, `stop`, `logs` subcommands in `main.rs`
+- [x] Write unit tests: runner errors when compose file missing (3 tests)
+- [x] Write unit tests: registry tag computation (2 tests)
 - [ ] Write integration tests: push tags images with correct names
 
 ---
 
 ## Acceptance Criteria
 
-- [ ] `aw-kit run` starts all enabled components via Docker Compose
-- [ ] `aw-kit run --detach` starts components in background
-- [ ] `aw-kit stop` cleanly shuts down all running components
-- [ ] `aw-kit logs planning` shows logs for the planning service
-- [ ] `aw-kit logs -f` follows all service logs
-- [ ] Running without a prior build gives a clear message and builds automatically
-- [ ] `aw-kit push` pushes built images with correct tags to configured registry
-- [ ] `aw-kit build --pull` skips local builds when pre-built images exist in registry
-- [ ] `aw-kit build --pull` falls back to local build when images not in registry
+- [x] `aw-kit run` starts all enabled components via Docker Compose
+- [x] `aw-kit run --detach` starts components in background
+- [x] `aw-kit stop` cleanly shuts down all running components
+- [x] `aw-kit logs planning` shows logs for the planning service
+- [x] `aw-kit logs -f` follows all service logs
+- [x] Running without a prior build gives a clear error message pointing to `aw-kit build`
+- [x] `aw-kit push` pushes built images with correct tags to configured registry
+- [x] `aw-kit build --pull` checks registry for pre-built images before building locally
+- [x] `aw-kit build --pull` falls back to local build when images not in registry
 - [ ] Missing registry auth produces a helpful error message

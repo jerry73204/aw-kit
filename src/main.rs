@@ -1,5 +1,5 @@
 use clap::Parser;
-use tracing::info;
+use tracing::{info, warn};
 
 use aw_kit::{
     builder::{self, ShellDockerEngine},
@@ -7,7 +7,7 @@ use aw_kit::{
     lockfile::LockFile,
     manifest::ManifestConfig,
     platform::resolve_platform,
-    resolver,
+    registry, resolver, runner,
 };
 
 fn main() {
@@ -25,7 +25,7 @@ fn main() {
     match cli.command {
         Command::Build {
             dry_run,
-            pull: _,
+            pull,
             locked,
         } => {
             let manifest = load_manifest(&cli.manifest);
@@ -52,11 +52,20 @@ fn main() {
                 return;
             }
 
-            let project_root = cli
-                .manifest
-                .parent()
-                .unwrap_or_else(|| std::path::Path::new("."));
+            let project_root = manifest_dir(&cli.manifest);
             let engine = ShellDockerEngine;
+
+            // Try pulling pre-built images from registry before building.
+            if pull {
+                if let Some(reg) = &manifest.registry {
+                    let pulled = registry::pull_from_registry(reg, &plan);
+                    if !pulled.is_empty() {
+                        info!("{} overlay images pulled from registry", pulled.len());
+                    }
+                } else {
+                    warn!("--pull specified but no [registry] configured in manifest");
+                }
+            }
 
             if locked {
                 let lock_path = project_root.join("Autoware.lock");
@@ -91,14 +100,89 @@ fn main() {
             }
             info!("wrote {}", lock_path.display());
         }
-        Command::Run { .. } => info!("run is not yet implemented"),
-        Command::Stop => info!("stop is not yet implemented"),
-        Command::Logs { .. } => info!("logs is not yet implemented"),
+        Command::Run { detach } => {
+            let project_root = manifest_dir(&cli.manifest);
+            if let Err(e) = runner::run(project_root, detach) {
+                eprintln!("error: {e}");
+                std::process::exit(1);
+            }
+        }
+        Command::Stop => {
+            let project_root = manifest_dir(&cli.manifest);
+            if let Err(e) = runner::stop(project_root) {
+                eprintln!("error: {e}");
+                std::process::exit(1);
+            }
+        }
+        Command::Logs { component, follow } => {
+            let project_root = manifest_dir(&cli.manifest);
+            if let Err(e) = runner::logs(project_root, component.as_deref(), follow) {
+                eprintln!("error: {e}");
+                std::process::exit(1);
+            }
+        }
+        Command::Push => {
+            let manifest = load_manifest(&cli.manifest);
+            let project_root = manifest_dir(&cli.manifest);
+            let resolved = match resolve_platform(&manifest.platform) {
+                Ok(r) => r,
+                Err(e) => {
+                    eprintln!("error: {e}");
+                    std::process::exit(1);
+                }
+            };
+            let plan = match resolver::resolve(&manifest, &resolved) {
+                Ok(p) => p,
+                Err(e) => {
+                    eprintln!("error: {e}");
+                    std::process::exit(1);
+                }
+            };
+
+            let reg = match &manifest.registry {
+                Some(r) => r,
+                None => {
+                    eprintln!("error: no [registry] configured in manifest");
+                    std::process::exit(1);
+                }
+            };
+
+            // Read existing build result from lock file.
+            let lock_path = project_root.join("Autoware.lock");
+            let lock = match LockFile::read(&lock_path) {
+                Ok(l) => l,
+                Err(_) => {
+                    eprintln!("error: no Autoware.lock found. Run `aw-kit build` first.");
+                    std::process::exit(1);
+                }
+            };
+
+            let result = builder::BuildResult {
+                step_results: lock
+                    .components
+                    .iter()
+                    .map(|c| builder::StepResult {
+                        component: c.name.clone(),
+                        image: c.image.clone(),
+                        digest: c.digest.clone(),
+                        layer_type: None,
+                    })
+                    .collect(),
+            };
+
+            if let Err(e) = registry::push(reg, &plan, &result) {
+                eprintln!("error: {e}");
+                std::process::exit(1);
+            }
+        }
         Command::New { .. } => info!("new is not yet implemented"),
         Command::Upgrade { .. } => info!("upgrade is not yet implemented"),
-        Command::Push => info!("push is not yet implemented"),
         Command::Rebase { .. } => info!("rebase is not yet implemented"),
     }
+}
+
+fn manifest_dir(path: &std::path::Path) -> &std::path::Path {
+    path.parent().unwrap_or_else(|| std::path::Path::new("."))
 }
 
 fn load_manifest(path: &std::path::Path) -> ManifestConfig {

@@ -5,4 +5,6 @@ pub mod error;
 pub mod lockfile;
 pub mod manifest;
 pub mod platform;
+pub mod registry;
 pub mod resolver;
+pub mod runner;
