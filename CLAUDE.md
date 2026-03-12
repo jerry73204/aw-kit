@@ -39,4 +39,4 @@ tests/
 
 ## Design docs
 
-Implementation roadmap is in `../internal/roadmap/`. The design spec is `../aw-kit.md`.
+Implementation roadmap is in `docs/roadmap/`. The design spec is `../aw-kit.md`.
