@@ -147,6 +147,11 @@ fn main() {
                 }
             };
 
+            // Check login status before pushing.
+            if let Some(warning) = registry::check_login(&reg.url).warning(&reg.url) {
+                eprintln!("warning: {warning}");
+            }
+
             // Read existing build result from lock file.
             let lock_path = project_root.join("Autoware.lock");
             let lock = match LockFile::read(&lock_path) {

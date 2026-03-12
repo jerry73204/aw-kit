@@ -1,4 +1,4 @@
-use std::process::Command;
+use std::{path::PathBuf, process::Command};
 
 use tracing::{info, warn};
 
@@ -164,6 +164,98 @@ pub fn pull_from_registry(registry: &Registry, plan: &BuildPlan) -> Vec<usize> {
 }
 
 // ---------------------------------------------------------------------------
+// Docker login detection
+// ---------------------------------------------------------------------------
+
+/// Path to the Docker config file.
+fn docker_config_path() -> PathBuf {
+    if let Ok(config_dir) = std::env::var("DOCKER_CONFIG") {
+        PathBuf::from(config_dir).join("config.json")
+    } else if let Ok(home) = std::env::var("HOME") {
+        PathBuf::from(home).join(".docker/config.json")
+    } else {
+        PathBuf::from("~/.docker/config.json")
+    }
+}
+
+/// Check if the user is authenticated to the given registry.
+///
+/// Inspects `~/.docker/config.json` (or `$DOCKER_CONFIG/config.json`)
+/// for auth entries or credential helpers matching the registry URL.
+pub fn check_login(registry_url: &str) -> LoginStatus {
+    let config_path = docker_config_path();
+    let content = match std::fs::read_to_string(&config_path) {
+        Ok(c) => c,
+        Err(_) => return LoginStatus::NoConfig,
+    };
+
+    let config: serde_json::Value = match serde_json::from_str(&content) {
+        Ok(v) => v,
+        Err(_) => return LoginStatus::NoConfig,
+    };
+
+    // Check "auths" section for direct credentials.
+    if let Some(auths) = config.get("auths").and_then(|v| v.as_object()) {
+        for key in auths.keys() {
+            if key.contains(registry_url) {
+                return LoginStatus::Authenticated;
+            }
+        }
+    }
+
+    // Check "credHelpers" for registry-specific credential helpers.
+    if let Some(helpers) = config.get("credHelpers").and_then(|v| v.as_object()) {
+        for key in helpers.keys() {
+            if key.contains(registry_url) {
+                return LoginStatus::Authenticated;
+            }
+        }
+    }
+
+    // Check "credsStore" — a global credential store handles all registries.
+    if config.get("credsStore").and_then(|v| v.as_str()).is_some() {
+        return LoginStatus::CredentialStore;
+    }
+
+    LoginStatus::NotAuthenticated
+}
+
+/// Result of checking Docker login status.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LoginStatus {
+    /// Credentials found for the registry.
+    Authenticated,
+    /// A global credential store is configured (may or may not have this registry).
+    CredentialStore,
+    /// No credentials found for this registry.
+    NotAuthenticated,
+    /// Docker config file not found.
+    NoConfig,
+}
+
+impl LoginStatus {
+    /// Returns true if we're confident the user is authenticated.
+    pub fn is_authenticated(&self) -> bool {
+        matches!(self, Self::Authenticated)
+    }
+
+    /// Returns a warning message if there may be an auth issue.
+    pub fn warning(&self, registry_url: &str) -> Option<String> {
+        match self {
+            Self::Authenticated => None,
+            Self::CredentialStore => None, // Credential store likely handles it.
+            Self::NotAuthenticated => Some(format!(
+                "not authenticated to registry '{registry_url}'. Run `docker login {registry_url}` first."
+            )),
+            Self::NoConfig => Some(
+                "Docker config file not found. Run `docker login` to configure credentials."
+                    .to_string(),
+            ),
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
@@ -202,5 +294,86 @@ mod tests {
             tag,
             "harbor.autosdv.edu.tw/autosdv/openadkit/planning:planning-control"
         );
+    }
+
+    #[test]
+    fn login_status_warning_for_not_authenticated() {
+        let status = LoginStatus::NotAuthenticated;
+        let msg = status.warning("harbor.autosdv.edu.tw").unwrap();
+        assert!(msg.contains("docker login"));
+        assert!(msg.contains("harbor.autosdv.edu.tw"));
+    }
+
+    #[test]
+    fn login_status_no_warning_when_authenticated() {
+        assert!(LoginStatus::Authenticated.warning("x").is_none());
+        assert!(LoginStatus::CredentialStore.warning("x").is_none());
+    }
+
+    #[test]
+    fn check_login_with_auths() {
+        let dir = tempfile::tempdir().unwrap();
+        let config_path = dir.path().join("config.json");
+        std::fs::write(
+            &config_path,
+            r#"{"auths": {"harbor.autosdv.edu.tw": {"auth": "dGVzdDp0ZXN0"}}}"#,
+        )
+        .unwrap();
+
+        // Point DOCKER_CONFIG to our temp dir.
+        let prev = std::env::var("DOCKER_CONFIG").ok();
+        // SAFETY: test is single-threaded for this env var usage.
+        unsafe { std::env::set_var("DOCKER_CONFIG", dir.path()) };
+
+        let status = check_login("harbor.autosdv.edu.tw");
+        assert_eq!(status, LoginStatus::Authenticated);
+
+        // Restore.
+        unsafe {
+            match prev {
+                Some(v) => std::env::set_var("DOCKER_CONFIG", v),
+                None => std::env::remove_var("DOCKER_CONFIG"),
+            }
+        }
+    }
+
+    #[test]
+    fn check_login_not_authenticated() {
+        let dir = tempfile::tempdir().unwrap();
+        let config_path = dir.path().join("config.json");
+        std::fs::write(&config_path, r#"{"auths": {}}"#).unwrap();
+
+        let prev = std::env::var("DOCKER_CONFIG").ok();
+        unsafe { std::env::set_var("DOCKER_CONFIG", dir.path()) };
+
+        let status = check_login("harbor.autosdv.edu.tw");
+        assert_eq!(status, LoginStatus::NotAuthenticated);
+
+        unsafe {
+            match prev {
+                Some(v) => std::env::set_var("DOCKER_CONFIG", v),
+                None => std::env::remove_var("DOCKER_CONFIG"),
+            }
+        }
+    }
+
+    #[test]
+    fn check_login_with_cred_store() {
+        let dir = tempfile::tempdir().unwrap();
+        let config_path = dir.path().join("config.json");
+        std::fs::write(&config_path, r#"{"credsStore": "desktop"}"#).unwrap();
+
+        let prev = std::env::var("DOCKER_CONFIG").ok();
+        unsafe { std::env::set_var("DOCKER_CONFIG", dir.path()) };
+
+        let status = check_login("anything.example.com");
+        assert_eq!(status, LoginStatus::CredentialStore);
+
+        unsafe {
+            match prev {
+                Some(v) => std::env::set_var("DOCKER_CONFIG", v),
+                None => std::env::remove_var("DOCKER_CONFIG"),
+            }
+        }
     }
 }

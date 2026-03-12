@@ -62,7 +62,7 @@ This avoids rebuilding on every Orin unit when one unit has already built and pu
 - [x] Implement `check_remote(image) -> Option<String>` — query registry via `docker buildx imagetools inspect`
 - [x] Implement `pull_from_registry(registry, plan)` — pull pre-built overlays, re-tag as local tags
 - [x] Integrate `--pull` flag into build pipeline: check remote before local build
-- [ ] Implement `docker login` detection: warn if not authenticated to configured registry
+- [x] Implement `docker login` detection: parse `~/.docker/config.json` for auths/credHelpers/credsStore
 - [x] Wire `push` subcommand in `main.rs` — reads lock file, pushes overlay images
 - [x] Wire `--pull` flag in `build` subcommand — calls `pull_from_registry` before executing plan
 - [x] Wire `run`, `stop`, `logs` subcommands in `main.rs`
@@ -83,4 +83,4 @@ This avoids rebuilding on every Orin unit when one unit has already built and pu
 - [x] `aw-kit push` pushes built images with correct tags to configured registry
 - [x] `aw-kit build --pull` checks registry for pre-built images before building locally
 - [x] `aw-kit build --pull` falls back to local build when images not in registry
-- [ ] Missing registry auth produces a helpful error message
+- [x] Missing registry auth produces a helpful warning message before push
