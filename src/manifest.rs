@@ -6,18 +6,18 @@ use std::{
 
 use crate::error::{Error, Result};
 
-/// Known Autoware component names.
+/// Known OpenADKit component names.
+///
+/// These match the actual image tags in `ghcr.io/autowarefoundation/openadkit:<component>`.
 const KNOWN_COMPONENTS: &[&str] = &[
-    "sensing",
-    "perception",
-    "localization",
-    "planning",
-    "control",
-    "vehicle",
-    "system",
+    "sensing-perception",
+    "localization-mapping",
+    "planning-control",
+    "vehicle-system",
     "api",
     "simulator",
     "visualizer",
+    "universe",
 ];
 
 /// Top-level manifest parsed from `Autoware.toml`.
@@ -49,6 +49,8 @@ pub struct Workspace {
 #[derive(Debug, Deserialize)]
 pub struct Platform {
     pub arch: String,
+    /// Use CUDA image variants where available (auto-enabled for Jetson devices).
+    pub cuda: Option<bool>,
     pub device: Option<String>,
     pub jetpack: Option<String>,
 }
@@ -177,11 +179,11 @@ mod tests {
             arch = "amd64"
 
             [components]
-            sensing    = true
-            perception = true
-            planning   = true
-            control    = true
-            vehicle    = true
+            sensing-perception   = true
+            localization-mapping = true
+            planning-control     = true
+            vehicle-system       = true
+            api                  = true
             "#,
         )
         .unwrap();
@@ -206,25 +208,25 @@ mod tests {
             arch = "amd64"
 
             [components]
-            localization = true
-            perception   = true
+            localization-mapping = true
+            sensing-perception   = true
 
-            [patch.localization]
+            [patch.localization-mapping]
             ndt_scan_matcher = { git = "https://github.com/autosdv/ndt_fix.git", branch = "orin-mem-fix" }
 
-            [patch.perception]
+            [patch.sensing-perception]
             lidar_centerpoint = { path = "./patches/lidar_centerpoint" }
             "#,
         )
         .unwrap();
 
         assert_eq!(m.patch.len(), 2);
-        let loc_patches = &m.patch["localization"];
+        let loc_patches = &m.patch["localization-mapping"];
         assert!(matches!(
             loc_patches["ndt_scan_matcher"],
             PatchSource::Git { .. }
         ));
-        let perc_patches = &m.patch["perception"];
+        let perc_patches = &m.patch["sensing-perception"];
         assert!(matches!(
             perc_patches["lidar_centerpoint"],
             PatchSource::Path { .. }
@@ -244,8 +246,8 @@ mod tests {
             jetpack = "6.1"
 
             [components]
-            perception = true
-            planning   = true
+            sensing-perception = true
+            planning-control   = true
             "#,
         )
         .unwrap();
@@ -266,26 +268,26 @@ mod tests {
             arch = "amd64"
 
             [components]
-            planning = true
-            sensing  = true
+            planning-control   = true
+            sensing-perception = true
 
             [[package]]
             name    = "autosdv_behavioral_planner"
             path    = "./src/autosdv_behavioral_planner"
-            extends = "planning"
+            extends = "planning-control"
 
             [[package]]
             name    = "autosdv_v2x_bridge"
             path    = "./src/autosdv_v2x_bridge"
-            extends = "sensing"
+            extends = "sensing-perception"
             "#,
         )
         .unwrap();
 
         assert_eq!(m.package.len(), 2);
         assert_eq!(m.package[0].name, "autosdv_behavioral_planner");
-        assert_eq!(m.package[0].extends, "planning");
-        assert_eq!(m.package[1].extends, "sensing");
+        assert_eq!(m.package[0].extends, "planning-control");
+        assert_eq!(m.package[1].extends, "sensing-perception");
     }
 
     #[test]
@@ -297,23 +299,24 @@ mod tests {
 
             [platform]
             arch    = "arm64"
+            cuda    = true
             device  = "jetson-agx-orin"
             jetpack = "6.1"
 
             [components]
-            localization = true
-            planning     = true
-            perception   = true
-            control      = true
-            vehicle      = true
+            sensing-perception   = true
+            localization-mapping = true
+            planning-control     = true
+            vehicle-system       = true
+            api                  = true
 
-            [patch.localization]
+            [patch.localization-mapping]
             ndt_scan_matcher = { git = "https://github.com/autosdv/ndt_fix.git", branch = "orin-fix" }
 
             [[package]]
             name    = "autosdv_behavioral_planner"
             path    = "./src/autosdv_behavioral_planner"
-            extends = "planning"
+            extends = "planning-control"
 
             [registry]
             url    = "harbor.autosdv.edu.tw"
@@ -324,6 +327,7 @@ mod tests {
 
         assert_eq!(m.enabled_components().len(), 5);
         assert_eq!(m.platform.device.as_deref(), Some("jetson-agx-orin"));
+        assert_eq!(m.platform.cuda, Some(true));
         assert_eq!(m.patch.len(), 1);
         assert_eq!(m.package.len(), 1);
         assert!(m.registry.is_some());
@@ -361,9 +365,9 @@ mod tests {
             arch = "amd64"
 
             [components]
-            planning = true
+            planning-control = true
 
-            [patch.localization]
+            [patch.localization-mapping]
             ndt_scan_matcher = { git = "https://example.com/ndt.git" }
             "#,
         )
@@ -384,9 +388,9 @@ mod tests {
             arch = "amd64"
 
             [components]
-            localization = false
+            localization-mapping = false
 
-            [patch.localization]
+            [patch.localization-mapping]
             ndt_scan_matcher = { path = "./ndt" }
             "#,
         )
@@ -407,7 +411,7 @@ mod tests {
             arch = "amd64"
 
             [components]
-            planning = true
+            planning-control = true
 
             [[package]]
             name    = "foo"

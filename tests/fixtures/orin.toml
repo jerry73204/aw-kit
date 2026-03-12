@@ -7,9 +7,9 @@ device  = "jetson-agx-orin"
 jetpack = "6.1"
 
 [components]
-sensing      = true
-perception   = true
-localization = true
-planning     = true
-control      = true
-vehicle      = true
+sensing-perception   = true
+localization-mapping = true
+planning-control     = true
+vehicle-system       = true
+api                  = true
+visualizer           = true

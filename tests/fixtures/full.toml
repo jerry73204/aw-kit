@@ -3,23 +3,24 @@ autoware = "0.45.1"
 
 [platform]
 arch    = "arm64"
+cuda    = true
 device  = "jetson-agx-orin"
 jetpack = "6.1"
 
 [components]
-localization = true
-planning     = true
-perception   = true
-control      = true
-vehicle      = true
+sensing-perception   = true
+localization-mapping = true
+planning-control     = true
+vehicle-system       = true
+api                  = true
 
-[patch.localization]
+[patch.localization-mapping]
 ndt_scan_matcher = { git = "https://github.com/autosdv/ndt_fix.git", branch = "orin-fix" }
 
 [[package]]
 name    = "autosdv_behavioral_planner"
 path    = "./src/autosdv_behavioral_planner"
-extends = "planning"
+extends = "planning-control"
 
 [registry]
 url    = "harbor.autosdv.edu.tw"

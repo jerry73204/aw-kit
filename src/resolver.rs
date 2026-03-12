@@ -3,14 +3,16 @@ use std::{collections::BTreeMap, fmt, path::PathBuf};
 use crate::{
     error::Result,
     manifest::{ManifestConfig, PatchSource},
-    platform::{ResolvedPlatform, needs_cuda_rebuild},
+    platform::{ResolvedPlatform, has_cuda_variant},
 };
 
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
 
-const UPSTREAM_REGISTRY: &str = "ghcr.io/autowarefoundation/openadkit";
+/// Upstream registry and image name.
+/// Images are tagged as `<UPSTREAM_IMAGE>:<component>[-cuda][-<date>]`.
+const UPSTREAM_IMAGE: &str = "ghcr.io/autowarefoundation/openadkit";
 
 // ---------------------------------------------------------------------------
 // Build plan types
@@ -19,7 +21,6 @@ const UPSTREAM_REGISTRY: &str = "ghcr.io/autowarefoundation/openadkit";
 /// A layer type in the image stacking order.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LayerType {
-    PlatformRebuild,
     Patch,
     Extension,
 }
@@ -27,7 +28,6 @@ pub enum LayerType {
 impl fmt::Display for LayerType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::PlatformRebuild => write!(f, "platform-rebuild"),
             Self::Patch => write!(f, "patch"),
             Self::Extension => write!(f, "extension"),
         }
@@ -94,7 +94,7 @@ impl BuildPlan {
         for step in &self.steps {
             match step {
                 BuildStep::Pull { component, image } => {
-                    eprintln!("  pull  {component:<16} {image}");
+                    eprintln!("  pull  {component:<24} {image}");
                 }
                 BuildStep::BuildOverlay {
                     component,
@@ -102,7 +102,7 @@ impl BuildPlan {
                     tag,
                     ..
                 } => {
-                    eprintln!("  build {component:<16} [{layer_type}] -> {tag}");
+                    eprintln!("  build {component:<24} [{layer_type}] -> {tag}");
                 }
             }
         }
@@ -121,10 +121,20 @@ impl BuildPlan {
 // Resolver
 // ---------------------------------------------------------------------------
 
+/// Resolve the upstream image tag for a component.
+///
+/// Format: `ghcr.io/autowarefoundation/openadkit:<component>[-cuda]`
+fn upstream_tag(component: &str, use_cuda: bool) -> String {
+    if use_cuda && has_cuda_variant(component) {
+        format!("{UPSTREAM_IMAGE}:{component}-cuda")
+    } else {
+        format!("{UPSTREAM_IMAGE}:{component}")
+    }
+}
+
 /// Resolve a manifest + platform into a concrete build plan.
 pub fn resolve(manifest: &ManifestConfig, platform: &ResolvedPlatform) -> Result<BuildPlan> {
     let version = &manifest.workspace.autoware;
-    let suffix = &platform.image_suffix;
 
     // Collect extensions per component.
     let mut extensions: BTreeMap<&str, Vec<&str>> = BTreeMap::new();
@@ -139,11 +149,10 @@ pub fn resolve(manifest: &ManifestConfig, platform: &ResolvedPlatform) -> Result
 
     for component in manifest.enabled_components() {
         let has_patches = manifest.patch.contains_key(component);
-        let has_platform_rebuild = platform.device.is_some() && needs_cuda_rebuild(component);
         let has_extensions = extensions.contains_key(component);
 
         // 1. Always pull the upstream image.
-        let upstream_image = format!("{UPSTREAM_REGISTRY}/{component}:{version}-{suffix}");
+        let upstream_image = upstream_tag(component, platform.use_cuda);
         steps.push(BuildStep::Pull {
             component: component.to_string(),
             image: upstream_image.clone(),
@@ -151,31 +160,12 @@ pub fn resolve(manifest: &ManifestConfig, platform: &ResolvedPlatform) -> Result
 
         let mut current_base = upstream_image;
 
-        // 2. Platform rebuild (if Jetson + CUDA component).
-        if has_platform_rebuild {
-            let tag = format!("{UPSTREAM_REGISTRY}/{component}:{version}-{suffix}-platform",);
-            let dockerfile =
-                PathBuf::from(format!(".aw-kit/build/{component}.platform.Dockerfile"));
-            let context = PathBuf::from(".aw-kit/build");
-
-            steps.push(BuildStep::BuildOverlay {
-                component: component.to_string(),
-                base_image: current_base,
-                dockerfile,
-                context,
-                tag: tag.clone(),
-                layer_type: LayerType::PlatformRebuild,
-                sources: Vec::new(),
-            });
-            current_base = tag;
-        }
-
-        // 3. Patch overlay.
+        // 2. Patch overlay.
         if has_patches {
             let patches = &manifest.patch[component];
             let sources = patch_sources(patches);
             let patch_hash = short_hash(patches);
-            let tag = format!("{UPSTREAM_REGISTRY}/{component}:{version}-p{patch_hash}-{suffix}",);
+            let tag = format!("{UPSTREAM_IMAGE}:{component}-{version}-p{patch_hash}");
             let dockerfile = PathBuf::from(format!(".aw-kit/build/{component}.patch.Dockerfile"));
             let context = PathBuf::from(".");
 
@@ -191,11 +181,11 @@ pub fn resolve(manifest: &ManifestConfig, platform: &ResolvedPlatform) -> Result
             current_base = tag;
         }
 
-        // 4. Extension (custom packages).
+        // 3. Extension (custom packages).
         if has_extensions {
             let pkg_names = &extensions[component];
             let ext_hash = short_hash_strs(pkg_names);
-            let tag = format!("{UPSTREAM_REGISTRY}/{component}:{version}-x{ext_hash}-{suffix}",);
+            let tag = format!("{UPSTREAM_IMAGE}:{component}-{version}-x{ext_hash}");
             let dockerfile =
                 PathBuf::from(format!(".aw-kit/build/{component}.extended.Dockerfile"));
             let context = PathBuf::from(".");
@@ -249,7 +239,6 @@ fn patch_sources(patches: &BTreeMap<String, PatchSource>) -> Vec<SourceFetch> {
 fn short_hash<V: std::fmt::Debug>(map: &BTreeMap<String, V>) -> String {
     use std::hash::{DefaultHasher, Hash, Hasher};
     let mut hasher = DefaultHasher::new();
-    // BTreeMap iteration is sorted, so this is deterministic.
     for key in map.keys() {
         key.hash(&mut hasher);
     }
@@ -299,25 +288,82 @@ mod tests {
             arch = "amd64"
 
             [components]
-            planning = true
-            control  = true
+            planning-control = true
+            vehicle-system   = true
             "#,
         );
 
         let plan = resolve(&m, &p).unwrap();
         assert_eq!(plan.steps.len(), 2);
 
-        // Both should be Pull steps.
         for step in &plan.steps {
             assert!(matches!(step, BuildStep::Pull { .. }));
         }
 
-        let planning_steps = plan.steps_for("planning");
-        assert_eq!(planning_steps.len(), 1);
-        assert!(
-            planning_steps[0]
-                .output_image()
-                .contains("planning:0.45.1-amd64")
+        let pc = plan.steps_for("planning-control");
+        assert_eq!(pc.len(), 1);
+        assert_eq!(
+            pc[0].output_image(),
+            "ghcr.io/autowarefoundation/openadkit:planning-control"
+        );
+    }
+
+    // -- CUDA variant selection ---------------------------------------------
+
+    #[test]
+    fn cuda_pulls_cuda_variant_for_eligible_component() {
+        let (m, p) = parse_and_resolve(
+            r#"
+            [workspace]
+            autoware = "0.45.1"
+
+            [platform]
+            arch = "amd64"
+            cuda = true
+
+            [components]
+            sensing-perception = true
+            planning-control   = true
+            "#,
+        );
+
+        let plan = resolve(&m, &p).unwrap();
+
+        // sensing-perception has a CUDA variant — should pull -cuda
+        let sp = plan.steps_for("sensing-perception");
+        assert_eq!(
+            sp[0].output_image(),
+            "ghcr.io/autowarefoundation/openadkit:sensing-perception-cuda"
+        );
+
+        // planning-control has no CUDA variant — plain image
+        let pc = plan.steps_for("planning-control");
+        assert_eq!(
+            pc[0].output_image(),
+            "ghcr.io/autowarefoundation/openadkit:planning-control"
+        );
+    }
+
+    #[test]
+    fn no_cuda_pulls_plain_image() {
+        let (m, p) = parse_and_resolve(
+            r#"
+            [workspace]
+            autoware = "0.45.1"
+
+            [platform]
+            arch = "amd64"
+
+            [components]
+            sensing-perception = true
+            "#,
+        );
+
+        let plan = resolve(&m, &p).unwrap();
+        let sp = plan.steps_for("sensing-perception");
+        assert_eq!(
+            sp[0].output_image(),
+            "ghcr.io/autowarefoundation/openadkit:sensing-perception"
         );
     }
 
@@ -334,23 +380,23 @@ mod tests {
             arch = "amd64"
 
             [components]
-            localization = true
-            planning     = true
+            localization-mapping = true
+            planning-control     = true
 
-            [patch.localization]
+            [patch.localization-mapping]
             ndt_scan_matcher = { git = "https://github.com/autosdv/ndt_fix.git", branch = "fix" }
             "#,
         );
 
         let plan = resolve(&m, &p).unwrap();
 
-        // planning: 1 pull
-        let planning = plan.steps_for("planning");
-        assert_eq!(planning.len(), 1);
-        assert!(matches!(planning[0], BuildStep::Pull { .. }));
+        // planning-control: pull only
+        let pc = plan.steps_for("planning-control");
+        assert_eq!(pc.len(), 1);
+        assert!(matches!(pc[0], BuildStep::Pull { .. }));
 
-        // localization: 1 pull + 1 patch build
-        let loc = plan.steps_for("localization");
+        // localization-mapping: pull + patch
+        let loc = plan.steps_for("localization-mapping");
         assert_eq!(loc.len(), 2);
         assert!(matches!(loc[0], BuildStep::Pull { .. }));
         assert!(matches!(
@@ -361,7 +407,6 @@ mod tests {
             }
         ));
 
-        // Patch build's base_image should be the pull image.
         if let BuildStep::BuildOverlay {
             base_image,
             sources,
@@ -374,10 +419,10 @@ mod tests {
         }
     }
 
-    // -- Scenario C: Orin platform rebuild ----------------------------------
+    // -- Scenario C: Orin with CUDA variant ---------------------------------
 
     #[test]
-    fn orin_cuda_component_gets_platform_rebuild() {
+    fn orin_pulls_cuda_variant() {
         let (m, p) = parse_and_resolve(
             r#"
             [workspace]
@@ -389,28 +434,22 @@ mod tests {
             jetpack = "6.1"
 
             [components]
-            perception = true
-            planning   = true
+            sensing-perception = true
+            planning-control   = true
             "#,
         );
 
         let plan = resolve(&m, &p).unwrap();
 
-        // perception is CUDA — gets pull + platform rebuild
-        let perc = plan.steps_for("perception");
-        assert_eq!(perc.len(), 2);
-        assert!(matches!(perc[0], BuildStep::Pull { .. }));
-        assert!(matches!(
-            perc[1],
-            BuildStep::BuildOverlay {
-                layer_type: LayerType::PlatformRebuild,
-                ..
-            }
-        ));
+        // sensing-perception: CUDA variant pulled (Jetson auto-enables CUDA)
+        let sp = plan.steps_for("sensing-perception");
+        assert_eq!(sp.len(), 1);
+        assert!(sp[0].output_image().ends_with("-cuda"));
 
-        // planning is not CUDA — pull only
-        let plan_steps = plan.steps_for("planning");
-        assert_eq!(plan_steps.len(), 1);
+        // planning-control: no CUDA variant, plain pull
+        let pc = plan.steps_for("planning-control");
+        assert_eq!(pc.len(), 1);
+        assert!(!pc[0].output_image().contains("cuda"));
     }
 
     // -- Scenario D: custom package extension -------------------------------
@@ -426,17 +465,17 @@ mod tests {
             arch = "amd64"
 
             [components]
-            planning = true
+            planning-control = true
 
             [[package]]
             name    = "my_planner"
             path    = "./src/my_planner"
-            extends = "planning"
+            extends = "planning-control"
             "#,
         );
 
         let plan = resolve(&m, &p).unwrap();
-        let steps = plan.steps_for("planning");
+        let steps = plan.steps_for("planning-control");
         assert_eq!(steps.len(), 2);
         assert!(matches!(steps[0], BuildStep::Pull { .. }));
         assert!(matches!(
@@ -459,62 +498,53 @@ mod tests {
         }
     }
 
-    // -- Full stack: Orin + patch + extension --------------------------------
+    // -- Full stack: patch + extension on same component ---------------------
 
     #[test]
-    fn full_stack_four_layers() {
+    fn full_stack_three_layers() {
         let (m, p) = parse_and_resolve(
             r#"
             [workspace]
             autoware = "0.45.1"
 
             [platform]
-            arch    = "arm64"
-            device  = "jetson-agx-orin"
-            jetpack = "6.1"
+            arch = "amd64"
 
             [components]
-            localization = true
+            localization-mapping = true
 
-            [patch.localization]
+            [patch.localization-mapping]
             ndt_scan_matcher = { git = "https://github.com/autosdv/ndt_fix.git", branch = "fix" }
 
             [[package]]
             name    = "my_loc_ext"
             path    = "./src/my_loc_ext"
-            extends = "localization"
+            extends = "localization-mapping"
             "#,
         );
 
         let plan = resolve(&m, &p).unwrap();
-        let steps = plan.steps_for("localization");
+        let steps = plan.steps_for("localization-mapping");
 
-        // 4 steps: pull, platform rebuild, patch, extension
-        assert_eq!(steps.len(), 4);
+        // 3 steps: pull, patch, extension
+        assert_eq!(steps.len(), 3);
         assert!(matches!(steps[0], BuildStep::Pull { .. }));
         assert!(matches!(
             steps[1],
-            BuildStep::BuildOverlay {
-                layer_type: LayerType::PlatformRebuild,
-                ..
-            }
-        ));
-        assert!(matches!(
-            steps[2],
             BuildStep::BuildOverlay {
                 layer_type: LayerType::Patch,
                 ..
             }
         ));
         assert!(matches!(
-            steps[3],
+            steps[2],
             BuildStep::BuildOverlay {
                 layer_type: LayerType::Extension,
                 ..
             }
         ));
 
-        // Verify chaining: each step's base is the previous step's output.
+        // Verify chaining.
         for i in 1..steps.len() {
             if let BuildStep::BuildOverlay { base_image, .. } = steps[i] {
                 assert_eq!(
@@ -540,71 +570,64 @@ mod tests {
             arch = "amd64"
 
             [components]
-            localization = true
-            perception   = true
+            localization-mapping = true
+            sensing-perception   = true
 
-            [patch.localization]
+            [patch.localization-mapping]
             ndt_scan_matcher = { path = "./patches/ndt" }
 
-            [patch.perception]
+            [patch.sensing-perception]
             lidar_centerpoint = { path = "./patches/lidar" }
             "#,
         );
 
         let plan = resolve(&m, &p).unwrap();
-
-        // Each gets pull + patch = 2 steps, total 4.
         assert_eq!(plan.steps.len(), 4);
 
-        let loc = plan.steps_for("localization");
+        let loc = plan.steps_for("localization-mapping");
         assert_eq!(loc.len(), 2);
 
-        let perc = plan.steps_for("perception");
-        assert_eq!(perc.len(), 2);
+        let sp = plan.steps_for("sensing-perception");
+        assert_eq!(sp.len(), 2);
 
-        // Their images should not reference each other.
-        assert_ne!(loc[1].output_image(), perc[1].output_image());
+        assert_ne!(loc[1].output_image(), sp[1].output_image());
     }
 
     // -- Image tag format ---------------------------------------------------
 
     #[test]
-    fn image_tags_contain_version_and_suffix() {
+    fn overlay_tags_include_version_and_hash() {
         let (m, p) = parse_and_resolve(
             r#"
             [workspace]
             autoware = "0.45.1"
 
             [platform]
-            arch    = "arm64"
-            device  = "jetson-agx-orin"
-            jetpack = "6.1"
+            arch = "amd64"
 
             [components]
-            perception = true
+            localization-mapping = true
 
-            [patch.perception]
-            lidar_centerpoint = { path = "./patches/lidar" }
+            [patch.localization-mapping]
+            ndt_scan_matcher = { path = "./patches/ndt" }
             "#,
         );
 
         let plan = resolve(&m, &p).unwrap();
-        let steps = plan.steps_for("perception");
+        let steps = plan.steps_for("localization-mapping");
 
-        // Pull image tag
-        assert!(steps[0].output_image().contains("0.45.1"));
-        assert!(steps[0].output_image().contains("agx-orin"));
-
-        // Platform rebuild tag
-        assert!(steps[1].output_image().contains("platform"));
-
-        // Patch tag contains -p<hash>-
-        let patch_tag = steps[2].output_image();
-        assert!(
-            patch_tag.contains("-p"),
-            "tag should contain patch hash: {patch_tag}"
+        // Pull tag: plain component name
+        assert_eq!(
+            steps[0].output_image(),
+            "ghcr.io/autowarefoundation/openadkit:localization-mapping"
         );
-        assert!(patch_tag.contains("agx-orin"));
+
+        // Patch tag: component-version-p<hash>
+        let patch_tag = steps[1].output_image();
+        assert!(
+            patch_tag.contains("localization-mapping-0.45.1-p"),
+            "{patch_tag}"
+        );
     }
 
     // -- Dockerfile paths ---------------------------------------------------
@@ -617,43 +640,35 @@ mod tests {
             autoware = "0.45.1"
 
             [platform]
-            arch    = "arm64"
-            device  = "jetson-agx-orin"
-            jetpack = "6.1"
+            arch = "amd64"
 
             [components]
-            localization = true
+            localization-mapping = true
 
-            [patch.localization]
+            [patch.localization-mapping]
             ndt = { path = "./ndt" }
 
             [[package]]
             name    = "my_ext"
             path    = "./src/my_ext"
-            extends = "localization"
+            extends = "localization-mapping"
             "#,
         );
 
         let plan = resolve(&m, &p).unwrap();
-        let steps = plan.steps_for("localization");
+        let steps = plan.steps_for("localization-mapping");
 
-        // steps: pull, platform, patch, extension
+        // steps: pull, patch, extension
         if let BuildStep::BuildOverlay { dockerfile, .. } = steps[1] {
             assert_eq!(
                 dockerfile,
-                &PathBuf::from(".aw-kit/build/localization.platform.Dockerfile")
+                &PathBuf::from(".aw-kit/build/localization-mapping.patch.Dockerfile")
             );
         }
         if let BuildStep::BuildOverlay { dockerfile, .. } = steps[2] {
             assert_eq!(
                 dockerfile,
-                &PathBuf::from(".aw-kit/build/localization.patch.Dockerfile")
-            );
-        }
-        if let BuildStep::BuildOverlay { dockerfile, .. } = steps[3] {
-            assert_eq!(
-                dockerfile,
-                &PathBuf::from(".aw-kit/build/localization.extended.Dockerfile")
+                &PathBuf::from(".aw-kit/build/localization-mapping.extended.Dockerfile")
             );
         }
     }

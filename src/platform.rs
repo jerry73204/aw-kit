@@ -38,6 +38,16 @@ impl fmt::Display for Arch {
     }
 }
 
+impl Arch {
+    /// Docker platform string for `--platform` flag.
+    pub fn docker_platform(&self) -> &'static str {
+        match self {
+            Self::Amd64 => "linux/amd64",
+            Self::Arm64 => "linux/arm64",
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // DockerRuntime
 // ---------------------------------------------------------------------------
@@ -121,22 +131,15 @@ fn known_device_names() -> String {
 }
 
 // ---------------------------------------------------------------------------
-// Default base images (no specific device)
+// CUDA variant registry
 // ---------------------------------------------------------------------------
 
-const AMD64_BASE_IMAGE: &str = "nvidia/cuda:12.6.3-devel-ubuntu22.04";
-const ARM64_BASE_IMAGE: &str = "arm64v8/ubuntu:22.04";
+/// Components that have pre-built `-cuda` image variants in the registry.
+const CUDA_VARIANT_COMPONENTS: &[&str] = &["sensing-perception", "universe"];
 
-// ---------------------------------------------------------------------------
-// CUDA component registry
-// ---------------------------------------------------------------------------
-
-const CUDA_COMPONENTS: &[&str] = &["perception", "localization"];
-
-/// Returns `true` if the component has CUDA dependencies and needs a
-/// platform-specific rebuild on Jetson targets.
-pub fn needs_cuda_rebuild(component: &str) -> bool {
-    CUDA_COMPONENTS.contains(&component)
+/// Returns `true` if the component has a pre-built `-cuda` image variant.
+pub fn has_cuda_variant(component: &str) -> bool {
+    CUDA_VARIANT_COMPONENTS.contains(&component)
 }
 
 // ---------------------------------------------------------------------------
@@ -149,10 +152,10 @@ pub struct ResolvedPlatform {
     pub device: Option<String>,
     pub jetpack: Option<String>,
     pub cuda_arch: Option<u32>,
+    pub use_cuda: bool,
     pub base_image: String,
     pub runtime: DockerRuntime,
     pub device_mounts: Vec<String>,
-    pub image_suffix: String,
 }
 
 impl ResolvedPlatform {
@@ -160,6 +163,7 @@ impl ResolvedPlatform {
     pub fn print_summary(&self) {
         eprintln!("Platform:");
         eprintln!("  arch:       {}", self.arch);
+        eprintln!("  docker:     {}", self.arch.docker_platform());
         if let Some(ref device) = self.device {
             eprintln!("  device:     {device}");
         }
@@ -169,12 +173,12 @@ impl ResolvedPlatform {
         if let Some(sm) = self.cuda_arch {
             eprintln!("  cuda arch:  SM {sm}");
         }
+        eprintln!("  cuda:       {}", self.use_cuda);
         eprintln!("  base image: {}", self.base_image);
         eprintln!("  runtime:    {}", self.runtime);
         if !self.device_mounts.is_empty() {
             eprintln!("  mounts:     {}", self.device_mounts.join(", "));
         }
-        eprintln!("  suffix:     {}", self.image_suffix);
     }
 }
 
@@ -183,26 +187,23 @@ pub fn resolve_platform(platform: &Platform) -> Result<ResolvedPlatform> {
     let arch: Arch = platform.arch.parse()?;
 
     match &platform.device {
-        Some(device_name) => resolve_with_device(arch, device_name, &platform.jetpack),
-        None => Ok(resolve_desktop(arch)),
+        Some(device_name) => {
+            resolve_with_device(arch, device_name, &platform.jetpack, platform.cuda)
+        }
+        None => Ok(resolve_desktop(arch, platform.cuda)),
     }
 }
 
-fn resolve_desktop(arch: Arch) -> ResolvedPlatform {
-    let base_image = match arch {
-        Arch::Amd64 => AMD64_BASE_IMAGE,
-        Arch::Arm64 => ARM64_BASE_IMAGE,
-    };
-
+fn resolve_desktop(arch: Arch, cuda: Option<bool>) -> ResolvedPlatform {
     ResolvedPlatform {
         arch,
         device: None,
         jetpack: None,
         cuda_arch: None,
-        base_image: base_image.to_string(),
+        use_cuda: cuda.unwrap_or(false),
+        base_image: "ros:humble-ros-base-jammy".to_string(),
         runtime: DockerRuntime::Default,
         device_mounts: Vec::new(),
-        image_suffix: arch.to_string(),
     }
 }
 
@@ -210,6 +211,7 @@ fn resolve_with_device(
     arch: Arch,
     device_name: &str,
     jetpack: &Option<String>,
+    cuda: Option<bool>,
 ) -> Result<ResolvedPlatform> {
     let info = KNOWN_DEVICES
         .iter()
@@ -221,7 +223,6 @@ fn resolve_with_device(
             ))
         })?;
 
-    // Validate arch matches the device.
     if arch != info.arch {
         return Err(Error::Platform(format!(
             "device '{device_name}' requires arch '{}', but manifest declares '{arch}'",
@@ -229,7 +230,6 @@ fn resolve_with_device(
         )));
     }
 
-    // JetPack is required for Jetson devices.
     let jp = jetpack.as_ref().ok_or_else(|| {
         Error::Platform(format!(
             "device '{device_name}' requires 'jetpack' to be set. Supported versions: {}",
@@ -237,7 +237,6 @@ fn resolve_with_device(
         ))
     })?;
 
-    // Validate JetPack version.
     if !info.jetpack_versions.contains(&jp.as_str()) {
         return Err(Error::Platform(format!(
             "unsupported jetpack '{jp}' for device '{device_name}'. Supported: {}",
@@ -245,16 +244,15 @@ fn resolve_with_device(
         )));
     }
 
-    // Build image suffix: e.g. "orin-jp6.1-arm64"
-    // Strip "jetson-" prefix for brevity, and "agx-"/"nano-" etc. for the common case.
-    let short_device = device_name.strip_prefix("jetson-").unwrap_or(device_name);
-    let image_suffix = format!("{short_device}-jp{jp}-{arch}");
+    // Jetson devices always use CUDA unless explicitly disabled.
+    let use_cuda = cuda.unwrap_or(true);
 
     Ok(ResolvedPlatform {
         arch,
         device: Some(device_name.to_string()),
         jetpack: Some(jp.clone()),
         cuda_arch: Some(info.cuda_arch),
+        use_cuda,
         base_image: info.base_image.to_string(),
         runtime: DockerRuntime::Nvidia,
         device_mounts: info
@@ -262,7 +260,6 @@ fn resolve_with_device(
             .iter()
             .map(|s| (*s).to_string())
             .collect(),
-        image_suffix,
     })
 }
 
@@ -278,6 +275,7 @@ mod tests {
     fn plat(arch: &str, device: Option<&str>, jetpack: Option<&str>) -> Platform {
         Platform {
             arch: arch.to_string(),
+            cuda: None,
             device: device.map(|s| s.to_string()),
             jetpack: jetpack.map(|s| s.to_string()),
         }
@@ -291,10 +289,22 @@ mod tests {
         assert_eq!(r.arch, Arch::Amd64);
         assert!(r.device.is_none());
         assert!(r.cuda_arch.is_none());
+        assert!(!r.use_cuda);
         assert_eq!(r.runtime, DockerRuntime::Default);
         assert!(r.device_mounts.is_empty());
-        assert_eq!(r.image_suffix, "amd64");
-        assert!(r.base_image.contains("cuda"));
+    }
+
+    #[test]
+    fn amd64_desktop_with_cuda() {
+        let p = Platform {
+            arch: "amd64".to_string(),
+            cuda: Some(true),
+            device: None,
+            jetpack: None,
+        };
+        let r = resolve_platform(&p).unwrap();
+        assert!(r.use_cuda);
+        assert_eq!(r.runtime, DockerRuntime::Default);
     }
 
     #[test]
@@ -302,7 +312,7 @@ mod tests {
         let r = resolve_platform(&plat("arm64", None, None)).unwrap();
         assert_eq!(r.arch, Arch::Arm64);
         assert_eq!(r.runtime, DockerRuntime::Default);
-        assert_eq!(r.image_suffix, "arm64");
+        assert!(!r.use_cuda);
     }
 
     // -- Jetson Orin --------------------------------------------------------
@@ -314,10 +324,10 @@ mod tests {
         assert_eq!(r.device.as_deref(), Some("jetson-agx-orin"));
         assert_eq!(r.jetpack.as_deref(), Some("6.1"));
         assert_eq!(r.cuda_arch, Some(87));
+        assert!(r.use_cuda); // auto-enabled for Jetson
         assert_eq!(r.runtime, DockerRuntime::Nvidia);
         assert!(!r.device_mounts.is_empty());
         assert!(r.base_image.contains("l4t"));
-        assert_eq!(r.image_suffix, "agx-orin-jp6.1-arm64");
     }
 
     #[test]
@@ -325,14 +335,27 @@ mod tests {
         let r = resolve_platform(&plat("arm64", Some("jetson-orin-nx"), Some("6.0"))).unwrap();
         assert_eq!(r.device.as_deref(), Some("jetson-orin-nx"));
         assert_eq!(r.cuda_arch, Some(87));
-        assert_eq!(r.image_suffix, "orin-nx-jp6.0-arm64");
+        assert!(r.use_cuda);
     }
 
     #[test]
     fn jetson_orin_nano() {
         let r = resolve_platform(&plat("arm64", Some("jetson-orin-nano"), Some("6.1"))).unwrap();
         assert_eq!(r.device.as_deref(), Some("jetson-orin-nano"));
-        assert_eq!(r.image_suffix, "orin-nano-jp6.1-arm64");
+        assert!(r.use_cuda);
+    }
+
+    #[test]
+    fn jetson_cuda_explicitly_disabled() {
+        let p = Platform {
+            arch: "arm64".to_string(),
+            cuda: Some(false),
+            device: Some("jetson-agx-orin".to_string()),
+            jetpack: Some("6.1".to_string()),
+        };
+        let r = resolve_platform(&p).unwrap();
+        assert!(!r.use_cuda);
+        assert_eq!(r.runtime, DockerRuntime::Nvidia); // runtime is still nvidia
     }
 
     // -- Validation errors --------------------------------------------------
@@ -375,15 +398,15 @@ mod tests {
         assert!(msg.contains("requires arch 'arm64'"), "{msg}");
     }
 
-    // -- CUDA component registry --------------------------------------------
+    // -- CUDA variant registry ----------------------------------------------
 
     #[test]
-    fn cuda_components() {
-        assert!(needs_cuda_rebuild("perception"));
-        assert!(needs_cuda_rebuild("localization"));
-        assert!(!needs_cuda_rebuild("planning"));
-        assert!(!needs_cuda_rebuild("control"));
-        assert!(!needs_cuda_rebuild("vehicle"));
-        assert!(!needs_cuda_rebuild("sensing"));
+    fn cuda_variant_components() {
+        assert!(has_cuda_variant("sensing-perception"));
+        assert!(has_cuda_variant("universe"));
+        assert!(!has_cuda_variant("planning-control"));
+        assert!(!has_cuda_variant("localization-mapping"));
+        assert!(!has_cuda_variant("vehicle-system"));
+        assert!(!has_cuda_variant("api"));
     }
 }

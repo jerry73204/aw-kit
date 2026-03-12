@@ -77,6 +77,9 @@ fn print_manifest(m: &ManifestConfig) {
     let p = &m.platform;
     println!("Platform:");
     println!("  arch:    {}", p.arch);
+    if let Some(cuda) = p.cuda {
+        println!("  cuda:    {cuda}");
+    }
     if let Some(ref device) = p.device {
         println!("  device:  {device}");
     }

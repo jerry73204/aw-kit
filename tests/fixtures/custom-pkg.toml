@@ -5,17 +5,16 @@ autoware = "0.45.1"
 arch = "amd64"
 
 [components]
-localization = true
-planning     = true
-control      = true
-vehicle      = true
+planning-control   = true
+sensing-perception = true
+vehicle-system     = true
 
 [[package]]
 name    = "autosdv_behavioral_planner"
 path    = "./src/autosdv_behavioral_planner"
-extends = "planning"
+extends = "planning-control"
 
 [[package]]
 name    = "autosdv_v2x_bridge"
 path    = "./src/autosdv_v2x_bridge"
-extends = "sensing"
+extends = "sensing-perception"

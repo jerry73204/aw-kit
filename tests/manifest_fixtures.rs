@@ -24,9 +24,9 @@ fn minimal_fixture() {
 fn patched_fixture() {
     let m = fixture("patched.toml");
     assert_eq!(m.patch.len(), 2);
-    assert!(m.patch.contains_key("localization"));
-    assert!(m.patch.contains_key("perception"));
-    assert_eq!(m.patch["localization"].len(), 1);
+    assert!(m.patch.contains_key("localization-mapping"));
+    assert!(m.patch.contains_key("sensing-perception"));
+    assert_eq!(m.patch["localization-mapping"].len(), 1);
 }
 
 #[test]
@@ -42,13 +42,14 @@ fn custom_pkg_fixture() {
     let m = fixture("custom-pkg.toml");
     assert_eq!(m.package.len(), 2);
     assert_eq!(m.package[0].name, "autosdv_behavioral_planner");
-    assert_eq!(m.package[0].extends, "planning");
+    assert_eq!(m.package[0].extends, "planning-control");
 }
 
 #[test]
 fn full_fixture() {
     let m = fixture("full.toml");
     assert_eq!(m.platform.device.as_deref(), Some("jetson-agx-orin"));
+    assert_eq!(m.platform.cuda, Some(true));
     assert_eq!(m.patch.len(), 1);
     assert_eq!(m.package.len(), 1);
     assert!(m.registry.is_some());
