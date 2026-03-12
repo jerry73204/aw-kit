@@ -1,0 +1,10 @@
+[workspace]
+autoware = "0.45.1"
+
+[components]
+sensing      = true
+perception   = true
+localization = true
+planning     = true
+control      = true
+vehicle      = true

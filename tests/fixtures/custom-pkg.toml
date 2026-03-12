@@ -1,0 +1,18 @@
+[workspace]
+autoware = "0.45.1"
+
+[components]
+localization = true
+planning     = true
+control      = true
+vehicle      = true
+
+[[package]]
+name    = "autosdv_behavioral_planner"
+path    = "./src/autosdv_behavioral_planner"
+extends = "planning"
+
+[[package]]
+name    = "autosdv_v2x_bridge"
+path    = "./src/autosdv_v2x_bridge"
+extends = "sensing"

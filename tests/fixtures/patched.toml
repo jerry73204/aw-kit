@@ -1,0 +1,15 @@
+[workspace]
+autoware = "0.45.1"
+
+[components]
+localization = true
+perception   = true
+planning     = true
+control      = true
+vehicle      = true
+
+[patch.localization]
+ndt_scan_matcher = { git = "https://github.com/autosdv/ndt_fix.git", branch = "orin-mem-fix" }
+
+[patch.perception]
+lidar_centerpoint = { path = "./patches/lidar_centerpoint" }

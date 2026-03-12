@@ -1,0 +1,24 @@
+[package]
+name = "aw-kit"
+version = "0.1.0"
+edition = "2024"
+description = "Autoware deployment toolkit — one manifest, all the plumbing"
+license = "Apache-2.0"
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"
+thiserror = "2"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[dev-dependencies]
+tempfile = "3"
+
+# Fast builds with some optimizations — good for local dev iteration
+[profile.dev-release]
+inherits = "release"
+debug = true
+lto = false
+incremental = true

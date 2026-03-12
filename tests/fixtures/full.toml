@@ -1,0 +1,25 @@
+[workspace]
+autoware = "0.45.1"
+
+[platform]
+device  = "jetson-agx-orin"
+jetpack = "6.1"
+
+[components]
+localization = true
+planning     = true
+perception   = true
+control      = true
+vehicle      = true
+
+[patch.localization]
+ndt_scan_matcher = { git = "https://github.com/autosdv/ndt_fix.git", branch = "orin-fix" }
+
+[[package]]
+name    = "autosdv_behavioral_planner"
+path    = "./src/autosdv_behavioral_planner"
+extends = "planning"
+
+[registry]
+url    = "harbor.autosdv.edu.tw"
+prefix = "autosdv/openadkit"
