@@ -4,6 +4,7 @@ use tracing::info;
 use aw_kit::{
     cli::{Cli, Command},
     manifest::ManifestConfig,
+    platform::resolve_platform,
 };
 
 fn main() {
@@ -25,8 +26,16 @@ fn main() {
             locked: _,
         } => {
             let manifest = load_manifest(&cli.manifest);
+            let resolved = match resolve_platform(&manifest.platform) {
+                Ok(r) => r,
+                Err(e) => {
+                    eprintln!("error: {e}");
+                    std::process::exit(1);
+                }
+            };
             if dry_run {
                 print_manifest(&manifest);
+                resolved.print_summary();
             } else {
                 info!("build is not yet implemented");
             }

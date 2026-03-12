@@ -51,31 +51,31 @@ Others (`planning`, `control`, `vehicle`, `sensing`) use standard arch images.
 
 ## Work Items
 
-- [ ] Create `platform.rs` module
-- [ ] Define `Arch` enum (`Amd64`, `Arm64`) with `FromStr` and `Display`
-- [ ] Define `DockerRuntime` enum (`Default`, `Nvidia`)
-- [ ] Define `ResolvedPlatform` struct with all derived fields
-- [ ] Build platform knowledge table as a static lookup (device → SM, base image, mounts)
-- [ ] Implement `resolve_platform(platform: &Platform) -> Result<ResolvedPlatform>`
-- [ ] Validate `arch` is a known value (`amd64` or `arm64`)
-- [ ] Validate `device` (if present) against knowledge table, error on unknown device
-- [ ] Validate `jetpack` is required when `device` is a Jetson, error if missing
-- [ ] Resolve derived fields: `cuda_arch`, `base_image`, `runtime`, `device_mounts`, `image_suffix`
-- [ ] Implement CUDA component registry: `fn needs_cuda_rebuild(component: &str) -> bool`
-- [ ] Print resolved platform summary to stderr
-- [ ] Write unit tests for amd64 desktop resolution (arch only, no device)
-- [ ] Write unit tests for Jetson Orin resolution (arch + device + jetpack)
-- [ ] Write unit tests for unknown device rejection
-- [ ] Write unit tests for missing jetpack on Jetson rejection
+- [x] Create `platform.rs` module
+- [x] Define `Arch` enum (`Amd64`, `Arm64`) with `FromStr` and `Display`
+- [x] Define `DockerRuntime` enum (`Default`, `Nvidia`)
+- [x] Define `ResolvedPlatform` struct with all derived fields
+- [x] Build platform knowledge table as a static lookup (device → SM, base image, mounts)
+- [x] Implement `resolve_platform(platform: &Platform) -> Result<ResolvedPlatform>`
+- [x] Validate `arch` is a known value (`amd64` or `arm64`)
+- [x] Validate `device` (if present) against knowledge table, error on unknown device
+- [x] Validate `jetpack` is required when `device` is a Jetson, error if missing
+- [x] Resolve derived fields: `cuda_arch`, `base_image`, `runtime`, `device_mounts`, `image_suffix`
+- [x] Implement CUDA component registry: `fn needs_cuda_rebuild(component: &str) -> bool`
+- [x] Print resolved platform summary to stderr
+- [x] Write unit tests for amd64 desktop resolution (arch only, no device)
+- [x] Write unit tests for Jetson Orin resolution (arch + device + jetpack)
+- [x] Write unit tests for unknown device rejection
+- [x] Write unit tests for missing jetpack on Jetson rejection
 
 ---
 
 ## Acceptance Criteria
 
-- [ ] `[platform]` without `arch` is rejected at parse time (serde required field)
-- [ ] `arch = "amd64"` with no device resolves to standard CUDA base image and default runtime
-- [ ] `arch = "arm64"` + `device = "jetson-agx-orin"` + `jetpack = "6.1"` resolves with L4T base, nvidia runtime, SM 87, device mounts
-- [ ] Unknown device produces a clear error listing supported devices
-- [ ] Jetson device without `jetpack` produces a clear error
-- [ ] `ResolvedPlatform.image_suffix` correctly encodes platform for image tagging
-- [ ] `needs_cuda_rebuild()` returns true only for `perception` and `localization`
+- [x] `[platform]` without `arch` is rejected at parse time (serde required field)
+- [x] `arch = "amd64"` with no device resolves to standard CUDA base image and default runtime
+- [x] `arch = "arm64"` + `device = "jetson-agx-orin"` + `jetpack = "6.1"` resolves with L4T base, nvidia runtime, SM 87, device mounts
+- [x] Unknown device produces a clear error listing supported devices
+- [x] Jetson device without `jetpack` produces a clear error
+- [x] `ResolvedPlatform.image_suffix` correctly encodes platform for image tagging
+- [x] `needs_cuda_rebuild()` returns true only for `perception` and `localization`
