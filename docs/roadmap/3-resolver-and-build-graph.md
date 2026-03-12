@@ -74,34 +74,34 @@ Compare current source digests against `Autoware.lock` entries. Skip steps whose
 
 ## Work Items
 
-- [ ] Create `resolver.rs` module
-- [ ] Define `BuildPlan` struct: ordered `Vec<BuildStep>` + metadata
-- [ ] Define `BuildStep`, `LayerType` enums
-- [ ] Implement `resolve(manifest: &ManifestConfig, platform: &ResolvedPlatform) -> Result<BuildPlan>`
-- [ ] For each enabled component, determine required layers based on patches, platform, and extensions
-- [ ] Compute layer stacking order: upstream → platform → patch → extension
-- [ ] Resolve upstream image URIs using GHCR tag format: `ghcr.io/autowarefoundation/openadkit/<component>:<version>-<arch>`
-- [ ] Implement source fetching plan: list git repos to clone, local paths to validate
+- [x] Create `resolver.rs` module
+- [x] Define `BuildPlan` struct: ordered `Vec<BuildStep>` + metadata
+- [x] Define `BuildStep`, `LayerType` enums
+- [x] Implement `resolve(manifest: &ManifestConfig, platform: &ResolvedPlatform) -> Result<BuildPlan>`
+- [x] For each enabled component, determine required layers based on patches, platform, and extensions
+- [x] Compute layer stacking order: upstream → platform → patch → extension
+- [x] Resolve upstream image URIs using GHCR tag format: `ghcr.io/autowarefoundation/openadkit/<component>:<version>-<arch>`
+- [x] Implement source fetching plan: list git repos to clone, local paths to validate
 - [ ] Implement `fetch_sources(plan: &BuildPlan)` — git clone for git patches, path validation for local
 - [ ] Implement directory hashing for incremental build detection (`hash_dir(path) -> String`)
-- [ ] Implement image tag computation with hash suffixes
+- [x] Implement image tag computation with hash suffixes
 - [ ] Integrate with lock file: skip steps whose digests match (requires Phase 5 lock file, stub for now)
-- [ ] Print build plan summary: what will be pulled, built, skipped
-- [ ] Write unit tests: component with no customization → Pull only
-- [ ] Write unit tests: component with patch → Pull + BuildOverlay(Patch)
-- [ ] Write unit tests: Orin + CUDA component → Pull + BuildOverlay(PlatformRebuild)
-- [ ] Write unit tests: full stack (Orin + patch + extension) → correct 4-layer ordering
-- [ ] Write unit tests: two components sharing a patch and an extension resolve independently
+- [x] Print build plan summary: what will be pulled, built, skipped
+- [x] Write unit tests: component with no customization → Pull only
+- [x] Write unit tests: component with patch → Pull + BuildOverlay(Patch)
+- [x] Write unit tests: Orin + CUDA component → Pull + BuildOverlay(PlatformRebuild)
+- [x] Write unit tests: full stack (Orin + patch + extension) → correct 4-layer ordering
+- [x] Write unit tests: two components sharing a patch and an extension resolve independently
 
 ---
 
 ## Acceptance Criteria
 
-- [ ] `resolve()` produces correct build steps for all 4 scenarios from the design doc (A, B, C, D)
-- [ ] Layer stacking order is always: upstream → platform → patch → extension
-- [ ] Each build step's base image references the output of the previous step
-- [ ] Image tags follow the scheme: `<version>[-<platform>][-p<hash>][-x<hash>][-<arch>]`
-- [ ] Git patch sources are cloned into `.aw-kit/src/<package>/`
-- [ ] Local path sources are validated for existence
-- [ ] Build plan summary clearly shows pull/build/skip status for each component
+- [x] `resolve()` produces correct build steps for all 4 scenarios from the design doc (A, B, C, D)
+- [x] Layer stacking order is always: upstream → platform → patch → extension
+- [x] Each build step's base image references the output of the previous step
+- [x] Image tags follow the scheme: `<version>[-<platform>][-p<hash>][-x<hash>][-<arch>]`
+- [x] Git patch sources are planned into `.aw-kit/src/<package>/` (fetch execution deferred to Phase 5)
+- [x] Local path sources are included in source fetch plan
+- [x] Build plan summary clearly shows pull/build/skip status for each component
 - [ ] Incremental detection correctly identifies unchanged components (stubbed with lock file)

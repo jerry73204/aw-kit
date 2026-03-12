@@ -5,6 +5,7 @@ use aw_kit::{
     cli::{Cli, Command},
     manifest::ManifestConfig,
     platform::resolve_platform,
+    resolver,
 };
 
 fn main() {
@@ -33,9 +34,18 @@ fn main() {
                     std::process::exit(1);
                 }
             };
+            let plan = match resolver::resolve(&manifest, &resolved) {
+                Ok(p) => p,
+                Err(e) => {
+                    eprintln!("error: {e}");
+                    std::process::exit(1);
+                }
+            };
             if dry_run {
                 print_manifest(&manifest);
                 resolved.print_summary();
+                eprintln!();
+                plan.print_summary();
             } else {
                 info!("build is not yet implemented");
             }
