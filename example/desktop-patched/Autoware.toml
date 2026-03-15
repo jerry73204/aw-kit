@@ -1,0 +1,22 @@
+# Desktop with patched ROS 2 packages.
+#
+# Replaces the ndt_scan_matcher package inside localization-mapping with a
+# local fork. aw-kit builds a thin overlay image that layers the patch on top
+# of the upstream image via colcon build --packages-select.
+#
+# Good for: algorithm development, A/B testing a modified package against
+# the stock stack, quick iteration without rebuilding everything.
+
+[workspace]
+autoware = "0.45.1"
+
+[platform]
+arch = "amd64"
+
+[components]
+planning-control     = true
+localization-mapping = true
+api                  = true
+
+[patch.localization-mapping]
+ndt_scan_matcher = { path = "./patches/ndt_scan_matcher" }

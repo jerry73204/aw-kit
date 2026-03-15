@@ -1,0 +1,22 @@
+# Desktop workstation with NVIDIA GPU.
+#
+# Enables CUDA-accelerated images for sensing-perception (TensorRT inference,
+# CUDA pointcloud processing). Requires an NVIDIA GPU and nvidia-container-toolkit.
+#
+# Good for: development with GPU-accelerated perception, rosbag replay with
+# real-time inference, pre-deployment testing before moving to Jetson.
+
+[workspace]
+autoware = "0.45.1"
+
+[platform]
+arch = "amd64"
+cuda = true
+
+[components]
+sensing-perception   = true
+localization-mapping = true
+planning-control     = true
+vehicle-system       = true
+api                  = true
+visualizer           = true

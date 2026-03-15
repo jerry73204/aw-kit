@@ -1,0 +1,34 @@
+# Team workflow with shared registry.
+#
+# One team member builds patched images and pushes to Harbor:
+#   aw-kit build && aw-kit push
+#
+# Other team members (or fleet vehicles) pull pre-built images:
+#   aw-kit build --pull
+#
+# This avoids rebuilding the same overlay on every Jetson device. The registry
+# also enables CI/CD pipelines to build once and deploy to multiple targets.
+#
+# Good for: multi-device fleets, CI/CD build-once-deploy-many, team collaboration.
+
+[workspace]
+autoware = "0.45.1"
+
+[platform]
+arch    = "arm64"
+device  = "jetson-orin-nx"
+jetpack = "6.1"
+
+[components]
+sensing-perception   = true
+localization-mapping = true
+planning-control     = true
+vehicle-system       = true
+api                  = true
+
+[patch.sensing-perception]
+lidar_centerpoint = { path = "./patches/lidar_centerpoint" }
+
+[registry]
+url    = "harbor.autosdv.edu.tw"
+prefix = "autosdv/openadkit"

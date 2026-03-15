@@ -1,0 +1,21 @@
+# NVIDIA Jetson Orin Nano deployment.
+#
+# Lightweight configuration for the Orin Nano's constrained resources.
+# Runs only the essential runtime components — no simulator or visualizer.
+#
+# Good for: cost-optimized edge nodes, fleet vehicles, small-footprint robots.
+
+[workspace]
+autoware = "0.45.1"
+
+[platform]
+arch    = "arm64"
+device  = "jetson-orin-nano"
+jetpack = "6.1"
+
+[components]
+sensing-perception   = true
+localization-mapping = true
+planning-control     = true
+vehicle-system       = true
+api                  = true

@@ -1,0 +1,32 @@
+# Patched perception stack on Jetson AGX Orin.
+#
+# Replaces two upstream ROS 2 packages with local fixes:
+#   - ndt_scan_matcher in localization-mapping (memory fix for Orin)
+#   - lidar_centerpoint in sensing-perception (custom TensorRT engine)
+#
+# aw-kit builds overlay images that layer the patched packages on top of the
+# upstream component images, keeping the rest of the stack untouched.
+#
+# Good for: hardware-specific hotfixes, vendor model integration, research
+# experiments that modify a single algorithm.
+
+[workspace]
+autoware = "0.45.1"
+
+[platform]
+arch    = "arm64"
+device  = "jetson-agx-orin"
+jetpack = "6.1"
+
+[components]
+sensing-perception   = true
+localization-mapping = true
+planning-control     = true
+vehicle-system       = true
+api                  = true
+
+[patch.localization-mapping]
+ndt_scan_matcher = { path = "./patches/ndt_scan_matcher" }
+
+[patch.sensing-perception]
+lidar_centerpoint = { path = "./patches/lidar_centerpoint" }

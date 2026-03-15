@@ -1,0 +1,24 @@
+# Desktop with a custom user package.
+#
+# Adds a custom behavioral planner that extends the planning-control image.
+# aw-kit generates an overlay Dockerfile, a devcontainer for VS Code, and
+# wires the extended image into docker-compose.
+#
+# Good for: adding organization-specific ROS 2 nodes on top of stock Autoware,
+# developing custom planning/control logic with full IDE support.
+
+[workspace]
+autoware = "0.45.1"
+
+[platform]
+arch = "amd64"
+
+[components]
+planning-control     = true
+localization-mapping = true
+api                  = true
+
+[[package]]
+name    = "my_planner"
+path    = "./src/my_planner"
+extends = "planning-control"

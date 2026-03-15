@@ -1,0 +1,50 @@
+# Full-stack deployment with patches, custom packages, and registry.
+#
+# Demonstrates all aw-kit features combined:
+#   - Jetson AGX Orin target with CUDA
+#   - Patched localization (hardware-specific NDT fix)
+#   - Custom behavioral planner extending planning-control
+#   - Custom V2X bridge extending sensing-perception
+#   - Team registry for sharing built images across devices
+#
+# Image layering per component:
+#   sensing-perception:   upstream-cuda → patch(lidar_centerpoint) → extension(v2x_bridge)
+#   localization-mapping: upstream → patch(ndt_scan_matcher)
+#   planning-control:     upstream → extension(behavioral_planner)
+#
+# Good for: production vehicle deployments with organization-specific modules.
+
+[workspace]
+autoware = "0.45.1"
+
+[platform]
+arch    = "arm64"
+device  = "jetson-agx-orin"
+jetpack = "6.1"
+
+[components]
+sensing-perception   = true
+localization-mapping = true
+planning-control     = true
+vehicle-system       = true
+api                  = true
+
+[patch.localization-mapping]
+ndt_scan_matcher = { path = "./patches/ndt_scan_matcher" }
+
+[patch.sensing-perception]
+lidar_centerpoint = { path = "./patches/lidar_centerpoint" }
+
+[[package]]
+name    = "autosdv_behavioral_planner"
+path    = "./src/autosdv_behavioral_planner"
+extends = "planning-control"
+
+[[package]]
+name    = "autosdv_v2x_bridge"
+path    = "./src/autosdv_v2x_bridge"
+extends = "sensing-perception"
+
+[registry]
+url    = "harbor.autosdv.edu.tw"
+prefix = "autosdv/openadkit"

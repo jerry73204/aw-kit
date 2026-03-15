@@ -1,0 +1,18 @@
+# Minimal desktop deployment — pull-only, no customization.
+#
+# Good for: getting started, CI smoke tests, or running a stock Autoware stack
+# on an amd64 workstation.
+
+[workspace]
+autoware = "0.45.1"
+
+[platform]
+arch = "amd64"
+
+[components]
+sensing-perception   = true
+localization-mapping = true
+planning-control     = true
+vehicle-system       = true
+api                  = true
+visualizer           = true

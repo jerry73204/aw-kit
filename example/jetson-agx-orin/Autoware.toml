@@ -1,0 +1,22 @@
+# NVIDIA Jetson AGX Orin deployment.
+#
+# Targets the AGX Orin devkit or production module with JetPack 6.1.
+# CUDA is auto-enabled; sensing-perception uses the -cuda image variant.
+# Docker Compose output includes `runtime: nvidia` and /dev/nvhost-* mounts.
+#
+# Good for: on-vehicle deployment, real sensor integration, edge inference.
+
+[workspace]
+autoware = "0.45.1"
+
+[platform]
+arch    = "arm64"
+device  = "jetson-agx-orin"
+jetpack = "6.1"
+
+[components]
+sensing-perception   = true
+localization-mapping = true
+planning-control     = true
+vehicle-system       = true
+api                  = true

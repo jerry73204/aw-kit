@@ -1,0 +1,22 @@
+# Planning simulation — test planning algorithms without real sensors.
+#
+# Enables the simulator component alongside planning, control, and vehicle
+# system. Localization is map-based (no live sensors). Visualizer included
+# for RViz scenario inspection.
+#
+# Good for: planning algorithm development, scenario-based testing, CI/CD
+# regression suites.
+
+[workspace]
+autoware = "0.45.1"
+
+[platform]
+arch = "amd64"
+
+[components]
+localization-mapping = true
+planning-control     = true
+vehicle-system       = true
+api                  = true
+simulator            = true
+visualizer           = true
