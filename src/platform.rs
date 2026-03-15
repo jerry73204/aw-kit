@@ -2,6 +2,7 @@ use std::{fmt, str::FromStr};
 
 use crate::{
     error::{Error, Result},
+    images,
     manifest::Platform,
 };
 
@@ -76,7 +77,6 @@ struct DeviceInfo {
     arch: Arch,
     cuda_arch: u32,
     jetpack_versions: &'static [&'static str],
-    base_image: &'static str,
     device_mounts: &'static [&'static str],
 }
 
@@ -86,7 +86,6 @@ const KNOWN_DEVICES: &[DeviceInfo] = &[
         arch: Arch::Arm64,
         cuda_arch: 87,
         jetpack_versions: &["6.0", "6.1"],
-        base_image: "nvcr.io/nvidia/l4t-cuda:12.6.68-devel",
         device_mounts: &[
             "/dev/nvhost-ctrl",
             "/dev/nvhost-ctrl-gpu",
@@ -99,7 +98,6 @@ const KNOWN_DEVICES: &[DeviceInfo] = &[
         arch: Arch::Arm64,
         cuda_arch: 87,
         jetpack_versions: &["6.0", "6.1"],
-        base_image: "nvcr.io/nvidia/l4t-cuda:12.6.68-devel",
         device_mounts: &[
             "/dev/nvhost-ctrl",
             "/dev/nvhost-ctrl-gpu",
@@ -112,7 +110,6 @@ const KNOWN_DEVICES: &[DeviceInfo] = &[
         arch: Arch::Arm64,
         cuda_arch: 87,
         jetpack_versions: &["6.0", "6.1"],
-        base_image: "nvcr.io/nvidia/l4t-cuda:12.6.68-devel",
         device_mounts: &[
             "/dev/nvhost-ctrl",
             "/dev/nvhost-ctrl-gpu",
@@ -195,13 +192,14 @@ pub fn resolve_platform(platform: &Platform) -> Result<ResolvedPlatform> {
 }
 
 fn resolve_desktop(arch: Arch, cuda: Option<bool>) -> ResolvedPlatform {
+    let images = images::load();
     ResolvedPlatform {
         arch,
         device: None,
         jetpack: None,
         cuda_arch: None,
         use_cuda: cuda.unwrap_or(false),
-        base_image: "ros:humble-ros-base-jammy".to_string(),
+        base_image: images.base.desktop,
         runtime: DockerRuntime::Default,
         device_mounts: Vec::new(),
     }
@@ -246,6 +244,7 @@ fn resolve_with_device(
 
     // Jetson devices always use CUDA unless explicitly disabled.
     let use_cuda = cuda.unwrap_or(true);
+    let images = images::load();
 
     Ok(ResolvedPlatform {
         arch,
@@ -253,7 +252,7 @@ fn resolve_with_device(
         jetpack: Some(jp.clone()),
         cuda_arch: Some(info.cuda_arch),
         use_cuda,
-        base_image: info.base_image.to_string(),
+        base_image: images.base.jetson,
         runtime: DockerRuntime::Nvidia,
         device_mounts: info
             .device_mounts

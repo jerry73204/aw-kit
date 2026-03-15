@@ -1,4 +1,5 @@
 use crate::{
+    images,
     platform::ResolvedPlatform,
     resolver::{BuildStep, LayerType, SourceFetch},
 };
@@ -8,7 +9,7 @@ use super::GENERATED_HEADER;
 /// Generate a Dockerfile for a `BuildOverlay` step.
 ///
 /// Returns empty string for non-overlay steps.
-pub fn generate(step: &BuildStep, _platform: &ResolvedPlatform) -> String {
+pub fn generate(step: &BuildStep, platform: &ResolvedPlatform) -> String {
     let BuildStep::BuildOverlay {
         base_image,
         layer_type,
@@ -19,17 +20,28 @@ pub fn generate(step: &BuildStep, _platform: &ResolvedPlatform) -> String {
         return String::new();
     };
 
+    let images = images::load();
+    let devel_image = if platform.use_cuda {
+        &images.devel.image_cuda
+    } else {
+        &images.devel.image
+    };
+
     match layer_type {
-        LayerType::Patch => generate_patch(base_image, sources),
-        LayerType::Extension => generate_extension(base_image, sources),
+        LayerType::Patch => generate_overlay(base_image, devel_image, sources),
+        LayerType::Extension => generate_overlay(base_image, devel_image, sources),
     }
 }
 
-/// Patch overlay: rebuild specific packages on top of the component image.
-fn generate_patch(base_image: &str, sources: &[SourceFetch]) -> String {
+/// Multi-stage overlay build:
+///   Stage 1 (build): compile packages in the devel image which has gcc/colcon.
+///   Stage 2 (runtime): copy the built overlay into the component runtime image.
+fn generate_overlay(base_image: &str, devel_image: &str, sources: &[SourceFetch]) -> String {
     let mut lines = Vec::new();
     lines.push(GENERATED_HEADER.to_string());
-    lines.push(format!("FROM {base_image}"));
+
+    // --- Stage 1: build ---
+    lines.push(format!("FROM {devel_image} AS build"));
     lines.push(String::new());
     lines.push("SHELL [\"/bin/bash\", \"-c\"]".to_string());
     lines.push(String::new());
@@ -39,7 +51,7 @@ fn generate_patch(base_image: &str, sources: &[SourceFetch]) -> String {
     lines.push("WORKDIR /opt/overlay_ws".to_string());
     lines.push(String::new());
 
-    // Copy patch sources.
+    // Copy sources.
     let mut pkg_names = Vec::new();
     for source in sources {
         let (src_path, name) = source_copy_args(source);
@@ -51,45 +63,14 @@ fn generate_patch(base_image: &str, sources: &[SourceFetch]) -> String {
     // Build.
     let select = pkg_names.join(" ");
     lines.push(format!(
-        "RUN . /opt/autoware/install/setup.bash && \\\n    colcon build --packages-select {select}"
+        "RUN . /opt/autoware/setup.bash && \\\n    colcon build --packages-select {select}"
     ));
     lines.push(String::new());
 
-    // Entrypoint that sources the overlay.
-    lines.push(entrypoint());
-    lines.push(String::new());
-
-    lines.join("\n")
-}
-
-/// Extension overlay: add custom user packages on top of the (possibly patched) image.
-fn generate_extension(base_image: &str, sources: &[SourceFetch]) -> String {
-    let mut lines = Vec::new();
-    lines.push(GENERATED_HEADER.to_string());
+    // --- Stage 2: runtime ---
     lines.push(format!("FROM {base_image}"));
     lines.push(String::new());
-    lines.push("SHELL [\"/bin/bash\", \"-c\"]".to_string());
-    lines.push(String::new());
-
-    // Create overlay workspace.
-    lines.push("RUN mkdir -p /opt/overlay_ws/src".to_string());
-    lines.push("WORKDIR /opt/overlay_ws".to_string());
-    lines.push(String::new());
-
-    // Copy package sources.
-    let mut pkg_names = Vec::new();
-    for source in sources {
-        let (src_path, name) = source_copy_args(source);
-        lines.push(format!("COPY {src_path} src/{name}"));
-        pkg_names.push(name);
-    }
-    lines.push(String::new());
-
-    // Build.
-    let select = pkg_names.join(" ");
-    lines.push(format!(
-        "RUN . /opt/autoware/install/setup.bash && \\\n    colcon build --packages-select {select}"
-    ));
+    lines.push("COPY --from=build /opt/overlay_ws/install /opt/overlay_ws/install".to_string());
     lines.push(String::new());
 
     // Entrypoint that sources the overlay.
@@ -120,7 +101,7 @@ fn source_copy_args(source: &SourceFetch) -> (String, String) {
 }
 
 fn entrypoint() -> String {
-    r#"CMD ["/bin/bash", "-c", "source /opt/autoware/install/setup.bash && source /opt/overlay_ws/install/setup.bash && exec bash"]"#.to_string()
+    r#"CMD ["/bin/bash", "-c", "source /opt/autoware/setup.bash && source /opt/overlay_ws/install/setup.bash && exec bash"]"#.to_string()
 }
 
 #[cfg(test)]
@@ -136,6 +117,19 @@ mod tests {
             jetpack: None,
             cuda_arch: None,
             use_cuda: false,
+            base_image: "ros:humble-ros-base-jammy".to_string(),
+            runtime: DockerRuntime::Default,
+            device_mounts: Vec::new(),
+        }
+    }
+
+    fn cuda_platform() -> ResolvedPlatform {
+        ResolvedPlatform {
+            arch: Arch::Amd64,
+            device: None,
+            jetpack: None,
+            cuda_arch: None,
+            use_cuda: true,
             base_image: "ros:humble-ros-base-jammy".to_string(),
             runtime: DockerRuntime::Default,
             device_mounts: Vec::new(),
@@ -160,9 +154,17 @@ mod tests {
 
         let content = generate(&step, &desktop_platform());
         assert!(content.starts_with(GENERATED_HEADER));
-        assert!(content.contains("FROM ghcr.io/autowarefoundation/openadkit:localization-mapping"));
+        // Build stage uses devel image.
+        assert!(
+            content.contains("FROM ghcr.io/autowarefoundation/openadkit-common:devel AS build")
+        );
         assert!(content.contains("COPY .aw-kit/src/ndt_scan_matcher src/ndt_scan_matcher"));
         assert!(content.contains("colcon build --packages-select ndt_scan_matcher"));
+        // Runtime stage uses component image.
+        assert!(
+            content.contains("FROM ghcr.io/autowarefoundation/openadkit:localization-mapping\n")
+        );
+        assert!(content.contains("COPY --from=build /opt/overlay_ws/install"));
         assert!(content.contains("setup.bash"));
     }
 
@@ -182,9 +184,36 @@ mod tests {
 
         let content = generate(&step, &desktop_platform());
         assert!(content.starts_with(GENERATED_HEADER));
-        assert!(content.contains("FROM ghcr.io/autowarefoundation/openadkit:planning-control"));
+        assert!(
+            content.contains("FROM ghcr.io/autowarefoundation/openadkit-common:devel AS build")
+        );
+        assert!(content.contains("FROM ghcr.io/autowarefoundation/openadkit:planning-control\n"));
         assert!(content.contains("COPY ./src/my_planner src/my_planner"));
         assert!(content.contains("colcon build --packages-select my_planner"));
+    }
+
+    #[test]
+    fn cuda_platform_uses_cuda_devel() {
+        let step = BuildStep::BuildOverlay {
+            component: "sensing-perception".to_string(),
+            base_image: "ghcr.io/autowarefoundation/openadkit:sensing-perception-cuda".to_string(),
+            dockerfile: PathBuf::from(".aw-kit/build/sensing-perception.patch.Dockerfile"),
+            context: PathBuf::from("."),
+            tag: "sensing-perception-0.45.1-p12345678".to_string(),
+            layer_type: LayerType::Patch,
+            sources: vec![SourceFetch::LocalPath {
+                path: PathBuf::from("./patches/lidar"),
+            }],
+        };
+
+        let content = generate(&step, &cuda_platform());
+        assert!(
+            content
+                .contains("FROM ghcr.io/autowarefoundation/openadkit-common:devel-cuda AS build")
+        );
+        assert!(
+            content.contains("FROM ghcr.io/autowarefoundation/openadkit:sensing-perception-cuda\n")
+        );
     }
 
     #[test]

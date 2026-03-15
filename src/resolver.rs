@@ -2,17 +2,10 @@ use std::{collections::BTreeMap, fmt, path::PathBuf};
 
 use crate::{
     error::Result,
+    images,
     manifest::{ManifestConfig, PatchSource},
     platform::{ResolvedPlatform, has_cuda_variant},
 };
-
-// ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
-
-/// Upstream registry and image name.
-/// Images are tagged as `<UPSTREAM_IMAGE>:<component>[-cuda][-<date>]`.
-const UPSTREAM_IMAGE: &str = "ghcr.io/autowarefoundation/openadkit";
 
 // ---------------------------------------------------------------------------
 // Build plan types
@@ -123,17 +116,19 @@ impl BuildPlan {
 
 /// Resolve the upstream image tag for a component.
 ///
-/// Format: `ghcr.io/autowarefoundation/openadkit:<component>[-cuda]`
-fn upstream_tag(component: &str, use_cuda: bool) -> String {
+/// Format: `<upstream_image>:<component>[-cuda]`
+fn upstream_tag(upstream_image: &str, component: &str, use_cuda: bool) -> String {
     if use_cuda && has_cuda_variant(component) {
-        format!("{UPSTREAM_IMAGE}:{component}-cuda")
+        format!("{upstream_image}:{component}-cuda")
     } else {
-        format!("{UPSTREAM_IMAGE}:{component}")
+        format!("{upstream_image}:{component}")
     }
 }
 
 /// Resolve a manifest + platform into a concrete build plan.
 pub fn resolve(manifest: &ManifestConfig, platform: &ResolvedPlatform) -> Result<BuildPlan> {
+    let images = images::load();
+    let upstream_image = &images.upstream.image;
     let version = &manifest.workspace.autoware;
 
     // Collect extensions per component.
@@ -152,20 +147,20 @@ pub fn resolve(manifest: &ManifestConfig, platform: &ResolvedPlatform) -> Result
         let has_extensions = extensions.contains_key(component);
 
         // 1. Always pull the upstream image.
-        let upstream_image = upstream_tag(component, platform.use_cuda);
+        let pull_tag = upstream_tag(upstream_image, component, platform.use_cuda);
         steps.push(BuildStep::Pull {
             component: component.to_string(),
-            image: upstream_image.clone(),
+            image: pull_tag.clone(),
         });
 
-        let mut current_base = upstream_image;
+        let mut current_base = pull_tag;
 
         // 2. Patch overlay.
         if has_patches {
             let patches = &manifest.patch[component];
             let sources = patch_sources(patches);
             let patch_hash = short_hash(patches);
-            let tag = format!("{UPSTREAM_IMAGE}:{component}-{version}-p{patch_hash}");
+            let tag = format!("{upstream_image}:{component}-{version}-p{patch_hash}");
             let dockerfile = PathBuf::from(format!(".aw-kit/build/{component}.patch.Dockerfile"));
             let context = PathBuf::from(".");
 
@@ -185,7 +180,7 @@ pub fn resolve(manifest: &ManifestConfig, platform: &ResolvedPlatform) -> Result
         if has_extensions {
             let pkg_names = &extensions[component];
             let ext_hash = short_hash_strs(pkg_names);
-            let tag = format!("{UPSTREAM_IMAGE}:{component}-{version}-x{ext_hash}");
+            let tag = format!("{upstream_image}:{component}-{version}-x{ext_hash}");
             let dockerfile =
                 PathBuf::from(format!(".aw-kit/build/{component}.extended.Dockerfile"));
             let context = PathBuf::from(".");

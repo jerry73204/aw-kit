@@ -1,0 +1,21 @@
+# Container image references used by aw-kit.
+#
+# Edit this file to point at a different registry, change image names,
+# or update base image versions.
+
+[upstream]
+# Registry + image name for pre-built OpenADKit component images.
+# Component tags are appended as :<component>[-cuda].
+image = "ghcr.io/autowarefoundation/openadkit"
+
+[devel]
+# Images used as the build stage in multi-stage overlay Dockerfiles.
+# These must contain gcc, colcon, and the Autoware workspace.
+image      = "ghcr.io/autowarefoundation/openadkit-common:devel"
+image_cuda = "ghcr.io/autowarefoundation/openadkit-common:devel-cuda"
+
+[base]
+# Default base image for desktop (non-device) platforms.
+desktop = "ros:humble-ros-base-jammy"
+# Base image for Jetson devices (L4T + CUDA).
+jetson  = "nvcr.io/nvidia/l4t-cuda:12.6.68-devel"
